@@ -37,7 +37,7 @@ text(JSON.stringify(batch.map(({ handle, reply }) => ({
 | 初次接触 PoA，需要了解它解决什么问题 | [概览](./01-overview.md) → [快速开始](./02-quickstart.md) |
 | 环境已就绪，需要马上跑通 | [快速开始](./02-quickstart.md) |
 | 要动手写一个新程序 | [编写指南](./05-writing.md)，遇到具体形状去 [模式库](./06-patterns.md) |
-| 要把程序**打成包交给别人跑**（含自带 MCP） | [核心概念 §9](./03-concepts.md#9-poa-包自带能力的那条路) → [编写指南 §13](./05-writing.md#13-从-js-到-poa要改的四件事) |
+| 要把程序**打成包交给别人跑**（含自带 MCP） | [核心概念 §9](./03-concepts.md#9-poa-包自带能力的那条路) → [编写指南 §13](./05-writing.md#13-从-js-到-poa要改的五件事) |
 | 查某个函数收什么参数 | [API 参考](./07-api-reference.md) |
 | 程序行为不符合预期 | [故障排查](./09-troubleshooting.md) |
 | 判断某件事能不能做 | [边界与限制](./08-limits.md) |
@@ -52,8 +52,8 @@ text(JSON.stringify(batch.map(({ handle, reply }) => ({
 | 02 | [快速开始](./02-quickstart.md) | 环境准备 → 探针 → 跑通第一个程序 → 写出自己的第一个 |
 | 03 | [核心概念](./03-concepts.md) | 三个角色、cell、沙箱面、prelude 与内置的分界、两代后端、**`.poa` 包与自带 MCP** |
 | 04 | [工作原理](./04-how-it-works.md) | code mode 是什么、`tools.foo()` 发生了什么、为什么并发不等于流式 |
-| 05 | [编写指南](./05-writing.md) | **主体文档。** 从空文件到能跑的完整动线，含四处必写的容错与调试习惯 |
-| 06 | [模式库](./06-patterns.md) | 四种可复用形状 + 一个负结果 + 六条反模式 |
+| 05 | [编写指南](./05-writing.md) | **主体文档。** 从空文件到能跑的完整动线，含四处必写的容错与调试习惯、**打成 `.poa` 包时要改的五件事** |
+| 06 | [模式库](./06-patterns.md) | 四种可复用形状 + 一个负结果 + 八条反模式 + 五个能力样本 demo |
 | 07 | [API 参考](./07-api-reference.md) | 12 个全局 primitive、16 个 prelude primitive、32 个内置工具的完整声明 |
 | 08 | [边界与限制](./08-limits.md) | 硬边界清单，以及每一条在写代码时的具体样子 |
 | 09 | [故障排查](./09-troubleshooting.md) | 症状 → 原因 → 处置；两个**不报错**的坑单独标出 |

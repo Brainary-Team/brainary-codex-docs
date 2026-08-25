@@ -1,6 +1,6 @@
 ---
 title: 核心概念
-description: 三个角色、cell、沙箱面、prelude 与内置的分界、两代后端
+description: 三个角色、cell、沙箱面、prelude 与内置的分界、两代后端、`.poa` 包与自带 MCP
 ---
 
 # 核心概念
@@ -116,7 +116,7 @@ graph TD
 > [!CAUTION]
 > **写成 `.poa` 包时，prelude 不会被拼进去。** 包的 `entry` 是原样提交的——这是格式的定义，不是配置。
 > 于是上表第一行那 16 个名字**全部不存在**，`runBatch is not defined` 是包作者最常见的第一个报错。
-> 要用就把 `prelude.js` 抄进包里、在 `entry` 顶部内联，或者干脆只用内置那一档。详见 [§9](#9-poa-包自带能力的那条路)。
+> 要用就把 `prelude.js` 抄进包里——**抄在首行 pragma 之后，第 1 行永远留给 `// @exec:`**，否则会踩[另一个坑](./05-writing.md#1-首行-pragma)。或者干脆只用内置那一档。详见 [§9](#9-poa-包自带能力的那条路)。
 
 ### prelude 为什么存在
 
@@ -241,7 +241,7 @@ graph LR
 
 **③ pragma 会被自动提到第 1 行——只在上面那条路上。** prelude 有 243 行，直接拼在前面会把 `// @exec:` 挤到第 244 行，那就**不生效了，而且不报错**。runner 专门做了这一步提取。走包这条路时 `entry` 原样提交，pragma 天然在第 1 行；但换成自研客户端拼源码时，**没有任何环节会代劳**。
 
-**④ 报错落在哪一侧决定去哪查**：宿主机侧的失败在 Python traceback 或 shell 里（走包这条路时连 Python 都没有，是 `codex` 自己报的 usage error）；V8 侧的失败在 RPC 返回的内容里。
+**④ 报错落在哪一侧决定去哪查**：宿主机侧的失败在 Python traceback 或 shell 里（走包这条路时不经 `run_workflow.py`，坏包是 `codex` 自己报的，直接 `exit(2)`——但 `run.sh` 仍会用 python3 生成模型清单和解析 `CODEX_BIN`）；V8 侧的失败在 RPC 返回的内容里。
 
 ---
 
@@ -287,25 +287,40 @@ shell = "node mcp/echo.mjs"       # 按 shell 语法切成 argv，直接派生�
 description = "..."               # 可选
 ```
 
+**这就是全部字段了**，两件事值得单独说：
+
+- **没有 `env`。** 想给 server 传 API key 之类的东西，当前没有口子——一个"需要凭据的 server"暂时打不进包里。
+- **未知字段被静默忽略，不报错。** manifest 没开严格模式（是有意的，为了让"给更新版运行时写的 manifest"栽在 `runtime` 上而不是栽在字段名上）。**代价是字段名打错等于没写**：`entery = "main.js"` 会安静地按"缺 entry"处理。别把 `poa_api_version` 对不上就直接拒这件事，推广成"整个 manifest 都是严校验"。
+
 ### 跑起来的时候发生了什么
 
+**两条路解包的地方不一样**，排障时要分清：
+
 ```
-codex exec --poa <目录|.poa>
-  ├─ 目录就现打包，.poa 就直接读
-  ├─ 本地先校验一遍 manifest        ← 坏包在这里就是 usage error，不会起半个会话
-  └─ base64 → { threadId, package }
-                 ↓
-       codex app-server
-         ├─ 解包到一个临时目录
-         ├─ 每条 [[capabilities.mcp]] 注册成 thread 级 MCP server（cwd = 包根）
-         ├─ 等这些 server 全部就位，再捕获工具面   ← 顺序是关键，见下
-         ├─ 任何一个没在工具面上留下工具 → 拒跑
-         └─ 把 entry 的内容当源码送进 V8
+① codex exec --poa <目录|.poa>          ② 自研客户端（如 run_workflow.py）
+   ├─ 目录现打包 / .poa 直接读              ├─ 自己造包（现成 JS 就包成零能力包）
+   ├─ 校验 manifest + 解包到临时目录        └─ base64 → JSON-RPC
+   │    ← 坏包在这里就是 exit(2)，                  { threadId, package }
+   │      一个会话都不会起                              ↓
+   └─ 进程内直接把 PoaPackage 传给                codex app-server
+      app-server（同进程，不过 JSON）             ├─ 解 base64、校验、解包
+                    ↓                            └──────────┬─────────
+              （两路在此汇合）                               │
+                    ↓                                       │
+       ├─ 每条 [[capabilities.mcp]] 注册成 thread 级 MCP server（cwd = 包根）
+       ├─ 等这些 server 全部就位，再捕获工具面   ← 顺序是关键，见下
+       ├─ 任何一个没在工具面上留下工具 → 拒跑
+       └─ 把 entry 的内容当源码送进 V8
 ```
 
 四件必须知道的事：
 
-**① 组装在服务端，不在客户端。** CLI 只是"把字节递过去"的一个薄客户端。**TUI、SDK、自研客户端跑一个包都是发同一份字节**，不需要各自实现一遍解包和起 server。
+**① "组装在服务端"指的是起 server，不是解包。** `codex exec --poa` 走的是**进程内**调用，包在客户端就打好、校验完、解压好了，`PoaPackage` 作为一个 Rust 值直接传进去，**全程没有 base64、没有 JSON 序列化**。base64 只发生在真正跨进程的 stdio JSON-RPC 上。
+
+真正在服务端的是**起 MCP server** 这一段——它挂在 thread 级的扩展点上，所以任何前端只要能把包递进去就能复用。
+
+> [!NOTE]
+> **设计上如此，目前只有 CLI 实现了。** `codex exec --poa` 是当前**唯一**的包入口——TUI 和 SDK 里一行 PoA 相关代码都没有。"TUI/SDK 也能跑包"是这套设计想达成的目标，不是现状。
 
 **② server 随 thread 生死，不写全局配置。** 包起的 server 只对这一个 thread 可见，`config.toml` 一个字都不改，thread 关掉进程就回收。
 
@@ -315,21 +330,25 @@ codex exec --poa <目录|.poa>
 
 ### 两个一定会踩的坑
 
-> [!WARNING]
-> **① 工具名不能硬编码。** `mcp__echo__echo` 是当前配置下的产物——前缀取决于 `prefix_mcp_tool_names()`，命名空间会被清洗、重名时还会加哈希后缀。**正确写法是从 `ALL_TOOLS` 里按后缀找，并断言只找到一个**：
->
-> ```js
-> const matches = ALL_TOOLS.map((t) => t.name).filter((n) => /(^|__)echo__echo$/.test(n));
-> if (matches.length !== 1) throw new Error(`expected exactly one echo tool, found ${matches.length}`);
-> const result = await tools[matches[0]]({ message: "ping" });
-> ```
->
-> 断言那一句不是防御性冗余：命名规则一变，**没有断言就是静默调错工具**。
+**① 工具名不能硬编码。** `mcp__echo__echo` 是当前配置下的产物——前缀取决于 `prefix_mcp_tool_names()`，命名空间会被清洗、重名时还会加哈希后缀。正确写法是从 `ALL_TOOLS` 里按后缀找并断言唯一，完整写法与理由见 [API 参考 §3.1](./07-api-reference.md#31-速查表)。
 
-> [!WARNING]
-> **② 没有标注的工具会触发审批弹窗，在无人值守下就是挂死。** 默认 `auto` 审批模式下，codex 对一个没有标注的 MCP 工具的假设是"它可能写、可能联网"，于是发起一次 elicitation——而这条链路上[没有人](#8-全程无人值守)。
+**② 工具必须标注，否则会被审批拦下。** 默认 `auto` 审批模式下，codex 对一个没有标注的 MCP 工具的假设是"它可能写、可能联网"，于是发起一次 elicitation——而这条链路上[没有人](#8-全程无人值守)。
+
+标注写在 MCP server `tools/list` 返回里每个工具的 `annotations` 上：
+
+```js
+annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }
+```
+
+> [!IMPORTANT]
+> **三个都要写，只写 `readOnlyHint` 不保险。** 判定顺序是 `destructiveHint === true` **先短路**（直接要审批），才轮到看 `readOnlyHint`。所以 `{readOnlyHint: true, destructiveHint: true}` 这种自相矛盾的组合仍然会被拦。
 >
-> **给工具标上 `readOnlyHint`**。顺带的好处是：只读标注同时也是[并行安全的判据](./04-how-it-works.md#哪些工具是并行安全的)，所以包自带的只读 server **是可以真并行的**（`ext/poa` 建的 config 里 `supports_parallel_tool_calls` 硬编码为 `false`，服务器级的整体豁免用不了，**只能逐个工具标只读**）。
+> **整个 server 照抄 `workflow-demos/poas/00_echo/mcp/echo.mjs`** —— 零依赖、手写 stdio JSON-RPC、注释里就写着每个标注为什么要在，是个可以直接拿走的模板。
+
+标注的顺带好处：只读同时也是[并行安全的判据](./04-how-it-works.md#哪些工具是并行安全的)，所以包自带的只读 server **是可以真并行的**（`ext/poa` 建的 config 里 `supports_parallel_tool_calls` 硬编码为 `false`，服务器级的整体豁免用不了，**只能逐个工具标只读**）。
+
+> [!NOTE]
+> **标注缺失的后果是"调用报错"，不是"挂住"。** 前一版这里写的是"无人值守下就是挂死"，那是错的：`codex exec` 会**自动取消** elicitation，`run_workflow.py` 则会**自动批准**它，两条路都不会卡住。真会挂死的只有一种情况——**自研客户端收到 `mcpServer/elicitation/request` 却不应答**。
 
 ### 边界
 
@@ -341,16 +360,27 @@ codex exec --poa <目录|.poa>
 
 还有几个数字：**包上限 64 MiB**（因为要 base64 塞进一条 JSON-RPC 消息），解压后 256 MiB / 100 倍膨胀比 / 4096 个条目三道闸，**解出来的文件权限固定 `0644`**（所以 server 要写成 `node mcp/xxx.mjs` 这种带解释器的命令行，别指望可执行位）。
 
-### 分发：`build.sh`
+### 分发：`poas/build.sh`
+
+以下都在 `workflow-demos/` 下执行：
 
 ```bash
-./build.sh poas/00_echo               # → ./00_echo.poa
-./run.sh   poas/00_echo v1-forced     # 目录直接跑，不用先 build
-codex exec --poa poas/00_echo         # 连 run.sh 都不要
-codex exec --poa ./00_echo.poa
+./run.sh        poas/00_echo v1-forced   # 目录直接跑，不用先 build
+poas/build.sh   poas/00_echo             # → ./00_echo.poa（脚本在 poas/ 下，不在根上）
+./run.sh        ./00_echo.poa v1-forced  # 打好的包也照跑
 ```
 
 **`build.sh` 只为"给别人一个文件"而存在**——`codex exec --poa <目录>` 本来就现打包。它写文件前先校验，时间戳钉在 zip 纪元所以**打两次字节一样**。
+
+> [!WARNING]
+> **两条打包路径选的文件不一样，别以为等价。**
+>
+> | | `poas/build.sh` | codex 自己打包（`--poa <目录>`） |
+> | --- | --- | --- |
+> | 选文件 | 走 `git ls-files`，**`.gitignore` 掉的不进包**（会在 stderr 报一行） | 显式关掉全部 ignore 规则，**目录里有什么就打什么** |
+> | 权限位 | 保留原始权限 | 一律 `0644` |
+>
+> 权限那行不影响结果——**解包时无条件覆盖成 `0644`**，两边最终一样。但选文件那行会咬人：包目录里有被 gitignore 的文件时，**你本地 `--poa <目录>` 跑通的包，`build.sh` 打出来发给别人可能就少文件**。发包前用 `poas/build.sh` 打一份、再 `./run.sh ./x.poa` 跑一遍，是唯一可靠的验证。
 
 > [!NOTE]
 > **包不需要 provider 也能跑。** 包本体不采样，所以 `run.sh` 对包目标会兜底一套占位的 key / model / base_url，而且 base_url 故意用一个**关闭的端口**（`127.0.0.1:9`）——万一程序真的去采样了，应当当场炸掉，而不是连上碰巧在监听的某台主机。这套兜底排在 `.env` 和 `CODEX_DEMO_*` **下面**，配了真 provider 照常生效。

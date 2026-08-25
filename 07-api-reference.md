@@ -14,7 +14,7 @@ description: 12 个全局 primitive、16 个 prelude primitive、32 个内置工
 | 类别 | 来源 | 数量 |
 | --- | --- | --- |
 | [全局 primitive](#1-全局-primitive12-个) | codex 内置，直接叫 | 12 |
-| [prelude primitive](#2-prelude-primitive12-个) | 仓库自备，运行前拼在程序代码前面 | 12 |
+| [prelude primitive](#2-prelude-primitive16-个) | 仓库自备，运行前拼在程序代码前面。**包里没有** | 16 |
 | [内置工具](#3-内置工具) | codex 内置，挂在 `tools` 上 | 32 + provider 相关 |
 
 > [!IMPORTANT]
@@ -54,7 +54,7 @@ description: 12 个全局 primitive、16 个 prelude primitive、32 个内置工
 来自 `workflow-demos/lib/prelude.js`（243 行）。**这些不是 codex 内置的**——换一个不拼 prelude 的客户端，它们全都不存在。
 
 > [!CAUTION]
-> **写 `.poa` 包时这一整节都不适用。** 包的 `entry` 原样提交，不拼 prelude，这 16 个名字一个都没有。见[编写指南 §13](./05-writing.md#13-从-js-到-poa要改的四件事)。
+> **写 `.poa` 包时这一整节都不适用。** 包的 `entry` 原样提交，不拼 prelude，这 16 个名字一个都没有。见[编写指南 §13](./05-writing.md#13-从-js-到-poa要改的五件事)。
 
 ### 2.1 派 agent / 收结果
 

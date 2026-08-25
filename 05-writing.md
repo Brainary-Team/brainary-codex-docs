@@ -1,6 +1,6 @@
 ---
 title: 编写指南
-description: 从空文件到能跑的完整动线，含四处必写的容错与调试习惯
+description: 从空文件到能跑的完整动线，含四处必写的容错与调试习惯，以及打成 `.poa` 包时要改的五件事
 ---
 
 # 编写指南
@@ -72,7 +72,8 @@ text(JSON.stringify(...));              ⑥ 收口并交出结果
 
 | primitive | PoA 客户端看得见吗 |
 | --- | --- |
-| `text(v)` | ✅ **唯一可靠的** |
+| `text(v)` | ✅ **唯一可靠的文本通道** |
+| `image(v)` / `audio(v)` / `generatedImage(v)` | ⚠️ 会进返回值，runner 打成 `[input_image] …` 一行摘要。**能证明"东西产出来了"，但读不到内容**（写法见 `demos/08_file_and_image.js`） |
 | `notify(v)` | ❌ 走另一条通道，收不到 |
 | `yield_control()` | ⚠️ 交出前半段之后没法接后半段，约等于提前结束 |
 | `exit()` | ✅ 顶层提前 return，可以正常用 |
@@ -108,8 +109,9 @@ text(JSON.stringify(...));              ⑥ 收口并交出结果
 
 > [!WARNING]
 > **"把数据文件打进包里"这条路目前走不通，别照直觉写。**
-> 包确实会被完整解出来，但解在**服务端的一个临时目录**里，而这个路径**不会以任何形式告诉程序**——
-> 沙箱里没有文件系统 API，`tools.read_file` 之流的基准是 `--cwd` 而不是包目录。
+> 包确实会被完整解出来，但解在**服务端的一个临时目录**里，而这个路径**不会以任何形式交给程序**。
+> 注意症结是"拿不到路径"，不是"没有读的手段"——`exec_command` 是宿主进程执行的，能读整个文件系统，
+> 但它不知道该读哪儿（它的相对路径基准是 `--cwd`）。**靠 `ls -dt /tmp/...` 去猜那个临时目录不是接口，别依赖。**
 > 拿得到那个目录的只有包自带的 MCP server（它的 cwd 就是包根，所以 `node mcp/echo.mjs` 才解析得了）。
 > **所以"随包带数据"当前只有两种写法**：写进 `entry` 的源码里，或者由包自带的 server 去读、程序调它拿。
 
@@ -477,22 +479,36 @@ try {
 
 ---
 
-## 13. 从 `.js` 到 `.poa`：要改的四件事
+## 13. 从 `.js` 到 `.poa`：要改的五件事
 
-上面整篇讲的都是 `demos/*.js` 那种写法——散装一个文件，靠 runner 拼 prelude。要把它变成一个能交给别人跑的[包](./03-concepts.md#9-poa-包自带能力的那条路)，有四处必须动，**其中前两处不动就是直接报错**：
+上面整篇讲的都是 `demos/*.js` 那种写法——散装一个文件，靠 runner 拼 prelude。要把它变成一个能交给别人跑的[包](./03-concepts.md#9-poa-包自带能力的那条路)，有五处必须动，**其中前两处不动就是直接报错**：
 
-**① prelude 没了，自己补。** 包的 `entry` 是原样提交的。`runBatch`、`parseJsonReply`、`AGENT_BACKEND` 这 16 个名字全部不存在。把 `lib/prelude.js` 的内容抄到 `entry` 顶部，或者只用内置那一档。
-
-**② 工具名从 `ALL_TOOLS` 里找，不能写死。** 尤其是包自带的那些——`mcp__<server>__<tool>` 的前缀会被清洗、重名时加哈希后缀。按后缀匹配 + 断言只命中一个：
+**① prelude 没了，自己补——但别把 pragma 挤下去。** 包的 `entry` 是原样提交的，`runBatch`、`parseJsonReply`、`AGENT_BACKEND` 这 16 个名字全部不存在。要用就把 `lib/prelude.js` 抄进来，**抄在首行 pragma 之后**：
 
 ```js
-const matches = ALL_TOOLS.map((t) => t.name).filter((n) => /(^|__)echo__echo$/.test(n));
-if (matches.length !== 1) throw new Error(`expected exactly one echo tool, found ${matches.length}`);
+// @exec: {"yield_time_ms": 900000, "max_output_tokens": 30000}   ← 第 1 行永远是它
+// ---- 以下抄自 workflow-demos/lib/prelude.js ----
+async function mapLimit(...) { /* … */ }
+// ---- 程序本体 ----
 ```
+
+顺手抄到文件开头是这一步最容易犯的错：包这条路上**没有 runner 替你把 pragma 提回第 1 行**（见下面 ④），抄反了就是 10 秒超时，而且不报错。
+
+**② 工具名从 `ALL_TOOLS` 里找，不能写死。** 尤其是包自带的那些——`mcp__<server>__<tool>` 的前缀会被清洗、重名时加哈希后缀。写法与理由见 [API 参考 §3.1](./07-api-reference.md#31-速查表)。
 
 **③ 常量的位置变了。** 原来靠"改文件再 `./run.sh`"调参，现在改完要重新打包（`codex exec --poa <目录>` 会现打包，所以这一步其实是自动的——但**发出去的 `.poa` 一旦定稿就改不了了**）。[§3](#3-外部输入怎么进到程序里) 那三条路里，只有"写死在源码顶部"对包成立。
 
-**④ pragma 的坑反过来了。** 不用再担心被 prelude 挤下第 1 行；但也没人替你把它提回去，**自己写对**。
+**④ pragma 没人替你提回第 1 行了。** 好消息是不用再担心被 prelude 挤下去（因为没有 runner 拼 prelude），坏消息是**你自己抄 prelude 时会亲手制造同一个问题**——见 ①。
+
+**⑤ 命令行开关换了一套。** `--cwd` 和 `--raw` 是 `run_workflow.py` 的参数，`codex exec` 上没有：
+
+| 想干什么 | demo 这条路 | 包这条路 |
+| --- | --- | --- |
+| 指定工作目录 | `--cwd <dir>` | `--cd <dir>` / `-C <dir>` |
+| 看原始返回值 | `--raw` | `--json` |
+| 指定模型 | `--model` | `--model` / `-m`（这个两边一样） |
+
+`./run.sh <包> <profile> <额外参数>` 会把额外参数**原样转给 `codex exec`**，所以在 `run.sh` 后面写 `--cwd` 同样是错的。
 
 > [!NOTE]
 > **能力申报是新增的一档，不是替换。** 包里 `[[capabilities.mcp]]` 申报的 server 起不来会直接拒跑，
@@ -511,7 +527,7 @@ if (matches.length !== 1) throw new Error(`expected exactly one echo tool, found
 | 暴露运行中程序的取消句柄 | §9 整节的前提（"跑飞只能杀进程"） |
 | 让派发真正并行 | §6.5、[模式库](./06-patterns.md)的负结果一节 |
 | prelude 加输出校验与重试 | §7 与 §8 第 ③ 点 |
-| 子 agent 继承包的 MCP server | §6 的派发写法、§13 ④ 那条注 |
+| 子 agent 继承包的 MCP server | §6 的派发写法、§13 末尾那条关于"能力申报是新增的一档"的注 |
 | 提交时能另附参数 | §3 整节，以及 §13 ③ |
 
 编写时按当前行为写；阅读时先确认这几条还没变。

@@ -62,10 +62,13 @@ description: 症状 → 原因 → 处置；两个不报错的坑单独标出
 | 命令行前缀 `VAR=x ./run.sh ...` 不起作用 | `.env` 是无条件赋值，会**覆盖**已导出的同名变量 | 改 `.env`，或把那一行注释掉 |
 | 结果里少了一部分，也没报错 | 见 [§0 ②](#0-先看这两个它们不报错) | 检查 `await` |
 | `refusing to run: required MCP server(s) unavailable: X` | 包申报的 server 没起来，**或起来了但一个工具都没报** | 先手动跑一遍 `shell` 那条命令行；注意解出来的文件权限固定 `0644`，命令行必须自带解释器 |
-| 包跑起来报 `runBatch is not defined` | 包的 `entry` 是**原样提交**的，不拼 prelude | 把 prelude 抄进包里，见[编写指南 §13](./05-writing.md#13-从-js-到-poa要改的四件事) |
+| 包跑起来报 `runBatch is not defined` | 包的 `entry` 是**原样提交**的，不拼 prelude | 把 prelude 抄进包里，见[编写指南 §13](./05-writing.md#13-从-js-到-poa要改的五件事) |
 | 包里的工具调用报 `tools.mcp__x__y is not a function` | 工具名被硬编码了；前缀会被清洗、重名时加哈希后缀 | 从 `ALL_TOOLS` 按后缀匹配 + 断言只命中一个 |
-| 跑包时挂住不动，没有任何输出 | 某个包内工具**没标注**，于是触发审批 elicitation——而这条链路上没有人 | 给工具标 `readOnlyHint` |
-| `codex exec --poa` 报 usage error | manifest 在**本地**就被校验掉了 | 照错误文案改；`network` 传输、非 `.js/.mjs` 的 `entry`、`poa_api_version != 1`、重名 server 都是这里拒的 |
+| 包内某个工具调用被拒 / 报错，但工具明明在 `ALL_TOOLS` 里 | 那个工具**没标注**，于是触发审批 elicitation。`codex exec` 会自动取消它、`run_workflow.py` 会自动批准它——所以**表现是报错或被拒，不是挂住** | 在 server 的 `tools/list` 里给每个工具写 `annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }`，三个都写 |
+| 用**自研客户端**跑包，卡住不动 | 收到了 `mcpServer/elicitation/request` 却没应答。这是唯一真会挂死的情形 | 客户端必须应答（自动批准或自动取消都行）；同时按上一行把工具标注补齐 |
+| `codex exec --poa` 报错并 `exit(2)` | manifest 在**本地**就被校验掉了，一个会话都不会起 | 照错误文案改；`network` 传输、非 `.js/.mjs` 的 `entry`、`poa_api_version != 1`、重名 server 都是这里拒的。⚠️ 报错文案里可能出现 `packageBase64` 这个字段名——**线上并不存在这个字段**（实际是 `package`），是上游没改干净的残留 |
+| `codex exec --poa` 报 `--poa cannot be combined with a subcommand.` | `--poa` 与 `resume` / `review` 子命令互斥，也与位置参数 prompt 互斥 | 包是一次 cell，不是一轮采样循环，两者不能叠 |
+| 绕开 `run.sh` 跑包，报没有 `exec` 工具 / cell 起不来 | `code_mode` feature **默认关闭**，`--poa` 不会替你打开 | 当前 `CODEX_HOME` 的 `config.toml` 里加 `[features.code_mode] enabled = true`，或直接用 `run.sh` |
 
 ---
 
@@ -122,10 +125,10 @@ description: 症状 → 原因 → 处置；两个不报错的坑单独标出
 | 5 | v2 并发上限**含 root 线程** | `v2` profile 把它调到 8 | 默认值 4 实际只剩 3 个名额 |
 | 6 | 嵌套工具调用默认串行 | 无法规避，只能改设计 | `Promise.race` 不流式 |
 | 7 | 模型清单配置项必须写在所有 `[table]` 之前 | `v1-forced` profile 里有行注释标出 | TOML 解析失败 |
-| 8 | **`exec_command` 只有 `tty: true` 才给 `session_id`** | demo 07 显式带 PTY | 不带 PTY 时 stdin 是个空管道，读它的命令立刻拿到 EOF 退出——**你拿到的是 `exit_code` 而不是会话**，`write_stdin` 无处可写 |
+| 8 | **`exec_command` 给不给 `session_id`，取决于进程在 `yield_time_ms` 内有没有结束** | demo 07 开 PTY 起交互式 shell | **判据不是 `tty`**，是"还活着就给会话、已退出就只给 `exit_code`"。`tty` 之所以相关是间接的：不带 PTY 时 stdin 是个空管道，**读 stdin 的命令**（比如一个交互式 shell）立刻拿到 EOF 就退出了，于是没有会话可给。`sleep 60` 不带 tty 照样返回 `session_id` |
 | 9 | **空写轮询会把 `yield_time_ms` 向上钳到 5000ms** | demo 07 按这个值排期 | 要更小**不报错也不提示**，调用就是隔 5 秒才落地一次。非空写默认 250ms |
 | 10 | **命令失败 ≠ 工具失败** | demo 07 一律看 `exit_code` | `exec_command` 对一个非零退出的命令返回 `ok`，诊断信息和真数据走同一个 `output` 字段。**判据永远是 `exit_code`，不是文本** |
-| 11 | **exec 策略按命令内容拒绝，与沙箱无关** | demo 08 把三道门分开报告 | `rm -rf` 即便在 `danger-full-access` 下也被拒（"rm -f style commands are not permitted"），同路径的 `rm -r` 却放行 |
+| 11 | **exec 策略按命令内容拒绝，与沙箱无关** | demo 08 把三道门分开报告 | `rm -rf` 即便在 `danger-full-access` 下也被拒（"rm -f style commands are not permitted"），同路径的 `rm -r` 却放行。**"与沙箱无关"是准确的，但"拒绝"这个结果依赖 `approval_policy = never`**——四个 profile 都是 never 所以观测到的就是拒绝；换成 `on-request` 会变成弹审批 |
 | 12 | **`memories__list` 在从没写过的库上直接失败** | demo 09 先写一条再列 | 根节点在第一条笔记之前不存在，于是报 `path '' was not found` 而不是返回空列表。临时笔记落在 `extensions/ad_hoc/notes/` 下，不在根上 |
 | 13 | **工具描述里的约束不是服务端校验** | demo 09 自己校验 | `update_plan` 文档写着"最多一个 `in_progress`"，然后**照收两个不吭声**。描述是写给模型看的，程序需要哪个不变量就自己保证 |
 | 14 | **出错的 agent 仍然是一次成功的工具调用** | demo 10 先判终态种类 | 终态是个 tagged union（`{completed}` / `{errored}`），`wait_agent` 两种都返回 `ok`，provider 的报错文本就坐在答复该在的位置。按工具状态判会让**一个不通的 provider 看起来像行为完全符合文档的后端**——demo 10 就曾对着死端点跑完全程，拿两个空列表报出 `same_agent_twice: true` |

@@ -91,7 +91,7 @@ cd workflow-demos
 | `v1` | **陷阱**，多数模型下拿到 0 个 agent 工具 |
 | `v1-forced` | 可用，**推荐默认用这个**。它把全部模型钉到 v1 后端 |
 | `v2` | 可用，需要更新的模型；并发名额算法与 v1 不同（见[编写指南 §6](./05-writing.md#63-并发度怎么定)） |
-| `full` | 后端同 `v1-forced`，但**把可选工具组全打开**（memories / clock / token 预算 / 权限），工具数 13 → 20。demo 07-10 要它 |
+| `full` | 后端同 `v1-forced`，但**把可选工具组全打开**（memories / clock / token 预算 / 权限），工具数 13 → 20。demo 06 和 09 要它 |
 
 > `backend` 为 `null` 时不要往下走。后面每一个程序都会以难以定位的方式失败。
 
@@ -146,14 +146,14 @@ cd workflow-demos
 | `05_streaming_select.js` | 不需要 | `v1-forced` | 只 sleep |
 | `06_capability_matrix.js` | 不需要 | `full`（别的也能跑，只是缺席项更多） | 把每个只读工具各调一次，报告实际拿到的返回形状 |
 | `07_exec_session.js` | 不需要 | 任意 | `exec_command` 会话 + `write_stdin`；并行安全的工具与串行跑法对照计时 |
-| `08_file_and_image.js` | 写在 `--cwd` 指的地方 | 任意 + `CODEX_DEMO_SANDBOX=workspace-write` | `apply_patch` / `view_image` / `image()`，以及写操作要过的三道独立的门 |
+| `08_file_and_image.js` | 不需要（写在 `mktemp -d` 的临时目录，不碰仓库） | 任意 + `CODEX_DEMO_SANDBOX=workspace-write` | `apply_patch` / `view_image` / `image()`，以及写操作要过的三道独立的门 |
 | `09_memory_clock_goal.js` | 不需要 | `full` | 带状态的那些工具：磁盘上的 memories、goal 状态机、plan、上下文预算、权限 |
 | `10_agent_lifecycle.js` | 不需要 | `v1-forced` / `full` 走 v1 分支，`v2` 走 v2 分支 | prelude 盖住的那层原始工具：`resume_agent`、`interrupt_agent`、多目标等待的陷阱、递归深度 |
 
 > [!TIP]
 > **demo 00 和 06-09 一个 agent 都不派，零模型调用，可以随便重跑。**
 > 这不是"因为它们跑得快"推出来的——把 provider 指到一个不通的地址
-> （`CODEX_DEMO_BASE_URL=http://127.0.0.1:1/v1`）它们四个照样跑完，输出不变。
+> （`CODEX_DEMO_BASE_URL=http://127.0.0.1:1/v1`）它们照样跑完，输出不变。
 > 根线程从来不走模型回合，`thread/codeMode/exec` 直接跑程序，**任何 demo 产生的模型流量都来自它派出去的子 agent**。
 >
 > **换模型、换 provider、换 profile 之后跑 demo 06**：它会报告哪些工具在、哪些不在、不在的那些卡在哪道门上。
@@ -162,18 +162,28 @@ cd workflow-demos
 
 ---
 
-### 跑一个自带能力的包
+### 2.1 顺手跑一个自带能力的包（可跳过，不影响后面的步骤）
 
-demo 是一个"用宿主给什么算什么"的散装 `.js`；**包**把能力带在身上：
+demo 是一个"用宿主给什么算什么"的散装 `.js`；**包**把能力带在身上。以下都在 `workflow-demos/` 下执行：
 
 ```bash
-./run.sh poas/00_echo v1-forced       # 目录直接跑，不用先打包
-codex exec --poa poas/00_echo         # 连 run.sh 都不要
-./build.sh poas/00_echo               # → ./00_echo.poa，给别人一个文件时才需要
-codex exec --poa ./00_echo.poa
+./run.sh      poas/00_echo v1-forced   # 目录直接跑，不用先打包
+poas/build.sh poas/00_echo             # → ./00_echo.poa，给别人一个文件时才需要
+./run.sh      ./00_echo.poa v1-forced
 ```
 
-`poas/00_echo` 是最小的那个：manifest 申报一个随包分发的 stdio MCP server，`main.js` 从 `ALL_TOOLS` 里把它找出来调一次。**它不需要 provider**——包本体不采样，`run.sh` 会为包目标兜底一套占位配置。
+`poas/` 下目前只有 `00_echo` 这一个样例，也是最小的那个：manifest 申报一个随包分发的 stdio MCP server，`main.js` 从 `ALL_TOOLS` 里把它找出来调一次。**它不需要 provider**——包本体不采样，`run.sh` 会为包目标兜底一套占位配置。自己写的包放 `workflow-demos/poas/<名字>/`。
+
+> [!WARNING]
+> **绕开 `run.sh` 直接敲 `codex exec --poa <包>` 有两个前提，缺一个都跑不起来。**
+>
+> **① `codex` 必须是你自建的那个。** PATH 上通常是上游安装版，会报 `unexpected argument '--poa'`——就是 [§0.2](#02-连接配置env) 那个坑的第二次发作。用 `"$CODEX_BIN" exec --poa ...`。
+>
+> **② 当前 `CODEX_HOME` 的 `config.toml` 里得有 `[features.code_mode] enabled = true`。** 这个 feature **默认是关的**，而 `--poa` 不会替你打开它；关着的话 `exec` 工具压根不在工具面上，cell 起不来。`run.sh` 渲染出来的四个 profile 都带这一行，**它的价值不只是兜底 provider**，还包括这个开关和按 profile 隔离的 `CODEX_HOME`。
+>
+> 换句话说：`codex exec --poa` 是包的**分发形态**（拿到包的人只要环境配好就能跑），不是本仓开发时的便捷方式。开发时用 `run.sh`。
+
+包的格式、边界和两个必踩的坑，见[核心概念 §9](./03-concepts.md#9-poa-包自带能力的那条路)。
 
 包的格式、边界和两个必踩的坑，见[核心概念 §9](./03-concepts.md#9-poa-包自带能力的那条路)。
 
@@ -310,6 +320,9 @@ text(JSON.stringify({
 ```bash
 ./run.sh demos/90_hello.js v1-forced --raw
 ```
+
+> [!NOTE]
+> **跑包时这个开关叫 `--json`。** `--raw` 是 `run_workflow.py` 的参数，而包这条路不经过它——额外参数被原样转给 `codex exec`，那边对应的是 `--json`。同理 `--cwd` 在包这条路上叫 `--cd` / `-C`。对照表见[编写指南 §13 ⑤](./05-writing.md#13-从-js-到-poa要改的五件事)。
 
 调试协议层问题时这是唯一手段。
 
