@@ -168,6 +168,8 @@ prelude 把这些差异全部盖住了，所以**同一段程序在两代后端�
 
 ### 四个 profile
 
+> **⚠ 快照，不是契约。** profile 是本仓 `workflow-demos/config/` 下的配置模板；下表是"某个模型 + 某份清单"的一张实测快照。**当前这套配置是什么样，只有探针答得了。**
+
 | profile | 后端 | agent 工具 | 工具总数 | 说明 |
 | --- | --- | --- | --- | --- |
 | `v1` | 取决于模型 | 0 | 8 | **陷阱。** 多数模型自报 v2，而 v2 工具默认进不了 code mode |
@@ -179,8 +181,6 @@ prelude 把这些差异全部盖住了，所以**同一段程序在两代后端�
 
 > [!IMPORTANT]
 > **第一行取决于模型，不取决于 profile。** 自带清单里只有 `gpt-5.6-sol` 和 `gpt-5.6-terra` 标了 `multi_agent_version: v2`，`gpt-5.6-luna` 本来就是 v1——所以用 luna 时 `v1` 这个 profile 会正常解析到 v1 并给出 5 个 agent 工具，`v1-forced` 对它是空操作。
->
-> 上面那张表是"某个模型 + 某份清单"的一张快照。**你那套是什么样，只有探针答得了。**
 
 `full` 打开的是这几组（各自的门不止一道）：
 
@@ -347,7 +347,7 @@ annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false 
 > [!IMPORTANT]
 > **三个都要写，只写 `readOnlyHint` 不保险。** 判定顺序是 `destructiveHint === true` **先短路**（直接要审批），才轮到看 `readOnlyHint`。所以 `{readOnlyHint: true, destructiveHint: true}` 这种自相矛盾的组合仍然会被拦。
 >
-> **整个 server 照抄 `workflow-demos/poas/00_echo/mcp/echo.mjs`** —— 零依赖、手写 stdio JSON-RPC、注释里就写着每个标注为什么要在，是个可以直接拿走的模板。
+> **整个 server 照抄 `workflow-demos/poas/00_echo/mcp/echo.mjs`** —— 零依赖、手写 stdio JSON-RPC、注释里就写着每个标注为什么要在，可以直接作为模板使用。
 
 标注的顺带好处：只读同时也是[并行安全的判据](./04-how-it-works.md#哪些工具是并行安全的)，所以包自带的只读 server **是可以真并行的**（`ext/poa` 建的 config 里 `supports_parallel_tool_calls` 硬编码为 `false`，服务器级的整体豁免用不了，**只能逐个工具标只读**）。
 
@@ -371,7 +371,7 @@ annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false 
 | 任意随包文件 | `[build]` 段、resources |
 | 根线程的工具面 | **子 agent 的工具面**——它跑在自己的 thread 上，拿不到包里的 server |
 
-还有几个数字：**包上限 64 MiB**（因为要 base64 塞进一条 JSON-RPC 消息），解压后 256 MiB / 100 倍膨胀比 / 4096 个条目三道闸，**解出来的文件权限固定 `0644`**（所以 server 要写成 `node mcp/xxx.mjs` 这种带解释器的命令行，别指望可执行位）。
+还有几个数字：**包上限 64 MiB**（因为要 base64 塞进一条 JSON-RPC 消息），解压后 256 MiB / 100 倍膨胀比 / 4096 个条目三道闸，**解出来的文件权限固定 `0644`**（所以 server 要写成 `node mcp/xxx.mjs` 这种带解释器的命令行，不能依赖可执行位）。
 
 ### 分发：`poas/build.sh`
 
@@ -393,7 +393,7 @@ poas/build.sh   poas/00_echo             # → ./00_echo.poa（脚本在 poas/ �
 > | 选文件 | 走 `git ls-files`，**`.gitignore` 掉的不进包**（会在 stderr 报一行） | 显式关掉全部 ignore 规则，**目录里有什么就打什么** |
 > | 权限位 | 保留原始权限 | 一律 `0644` |
 >
-> 权限那行不影响结果——**解包时无条件覆盖成 `0644`**，两边最终一样。但选文件那行会咬人：包目录里有被 gitignore 的文件时，**你本地 `--poa <目录>` 跑通的包，`build.sh` 打出来发给别人可能就少文件**。发包前用 `poas/build.sh` 打一份、再 `./run.sh ./x.poa` 跑一遍，是唯一可靠的验证。
+> 权限那行不影响结果——**解包时无条件覆盖成 `0644`**，两边最终一样。但选文件那行会出事：包目录里有被 gitignore 的文件时，**在本地用 `--poa <目录>` 跑通的那个包，`build.sh` 打出来发给别人可能就少文件**。发包前用 `poas/build.sh` 打一份、再 `./run.sh ./x.poa` 跑一遍，是唯一可靠的验证。
 
 > [!NOTE]
 > **包不需要 provider 也能跑。** 包本体不采样，所以 `run.sh` 对包目标会兜底一套占位的 key / model / base_url，而且 base_url 故意用一个**关闭的端口**（`127.0.0.1:9`）——万一程序真的去采样了，应当当场炸掉，而不是连上碰巧在监听的某台主机。这套兜底排在 `.env` 和 `CODEX_DEMO_*` **下面**，配了真 provider 照常生效。

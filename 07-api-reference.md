@@ -51,7 +51,7 @@ description: 12 个全局 primitive、16 个 prelude primitive、32 个内置工
 
 ## 2. prelude primitive（16 个）
 
-来自 `workflow-demos/lib/prelude.js`（243 行）。**这些不是 codex 内置的**——换一个不拼 prelude 的客户端，它们全都不存在。
+> **⚠ 快照，不是契约。** 这一整节描述的是 `workflow-demos/lib/prelude.js`（243 行）这一层**本仓自备的封装**，既不是 codex 内置的，也不是 brainary 的接口契约——换一个不拼 prelude 的客户端，下面这 16 个名字全都不存在。
 
 > [!CAUTION]
 > **写 `.poa` 包时这一整节都不适用。** 包的 `entry` 原样提交，不拼 prelude，这 16 个名字一个都没有。见[编写指南 §13](./05-writing.md#13-从-js-到-poa要改的五件事)。
@@ -122,6 +122,8 @@ else log.push(`memories 返回 ${shapeOf(r.value)}，耗时 ${r.ms}ms`);
 挂在全局对象 `tools` 上，**能不能用取决于配置与 provider**。
 
 ### 3.1 速查表
+
+> **⚠ 快照，不是契约。** 这张表是一次实测的结果，**只说明"大概会看到什么"**。工具面随模型、provider 与配置变化，现在实际有什么以探针输出的 `all_tools` 为准。
 
 「默认可得」一列：
 

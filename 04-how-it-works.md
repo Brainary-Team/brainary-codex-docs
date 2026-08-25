@@ -9,7 +9,7 @@ description: code mode 是什么、tools.foo() 发生了什么、为什么并发
 
 这一篇只讲**会影响写法**的机制。内核如何实现这条通道不在范围内。
 
-前两节是[概览 §3](./01-overview.md#3-它是怎么接进-codex-的code-mode) 的展开版；已经看过那一节的，可以从 [§3 `tools.foo()` 实际发生了什么](#3-toolsfoo-实际发生了什么)直接读起。
+前两节是[概览 §3](./01-overview.md#3-brainary-把它接在哪codex-的-code-mode) 的展开版；已经看过那一节的，可以从 [§3 `tools.foo()` 实际发生了什么](#3-toolsfoo-实际发生了什么)直接读起。
 
 ---
 
@@ -69,7 +69,7 @@ text(JSON.stringify(dirs.map((d, i) => ({ dir: d, rs: counts[i].output.trim() })
 
 ## 2. PoA 走的是 code mode 这条路
 
-上游的 code mode 里，那段 JavaScript 是**模型写的**——它只是模型一只更灵巧的手。
+codex 原本的 code mode 里，那段 JavaScript 是**模型写的**——它只是模型一只更灵巧的手。
 
 PoA 做的事是：**开一个口子，让模型以外的东西也能提交 JS。**
 
