@@ -84,13 +84,14 @@ cd workflow-demos
 >
 > **永远显式写 `v1-forced` 或 `v2`。**
 
-三个 profile 的取舍：
+四个 profile 的取舍：
 
 | profile | 结果 |
 | --- | --- |
 | `v1` | **陷阱**，多数模型下拿到 0 个 agent 工具 |
 | `v1-forced` | 可用，**推荐默认用这个**。它把全部模型钉到 v1 后端 |
 | `v2` | 可用，需要更新的模型；并发名额算法与 v1 不同（见[编写指南 §6](./05-writing.md#63-并发度怎么定)） |
+| `full` | 后端同 `v1-forced`，但**把可选工具组全打开**（memories / clock / token 预算 / 权限），工具数 13 → 20。demo 07-10 要它 |
 
 > `backend` 为 `null` 时不要往下走。后面每一个程序都会以难以定位的方式失败。
 
@@ -133,18 +134,48 @@ cd workflow-demos
 > 于是 `ls -d */` 列出来的是 `demos/`、`lib/`、`runner/`，而不是待扫描的仓库。
 > **程序不会报错，只会认认真真地分析错的东西。**
 
-六个示例程序对工作目录的要求不同，各自推荐的 `--cwd`：
+十一个示例程序对工作目录和 profile 的要求不同：
 
-| demo | 推荐 `--cwd` | 为什么 |
-| --- | --- | --- |
-| `00_probe.js` | 不需要 | 不碰文件系统 |
-| `01_fanout_summary.js` | `../sdk` | 恰好 3 个子目录，各自带清单文件 |
-| `02_map_reduce.js` | `../codex-rs` | 前 4 个子目录都是小 crate 且共享内部依赖，跨报告比对才有结果 |
-| `03_adversarial_review.js` | `../sdk/typescript` | 小而自足，断言容易被 reviewer 真正核验 |
-| `04_stateful_dialogue.js` | `../sdk/typescript` | 根目录必须有 `Cargo.toml` / `package.json` / `pyproject.toml` / `README.md` 之一，否则程序直接退出 |
-| `05_streaming_select.js` | 不需要 | 只 sleep |
+| demo | 推荐 `--cwd` | profile | 为什么 |
+| --- | --- | --- | --- |
+| `00_probe.js` | 不需要 | 任意 | 不碰文件系统 |
+| `01_fanout_summary.js` | `../sdk` | `v1-forced` | 恰好 3 个子目录，各自带清单文件 |
+| `02_map_reduce.js` | `../codex-rs` | `v1-forced` | 前 4 个子目录都是小 crate 且共享内部依赖，跨报告比对才有结果 |
+| `03_adversarial_review.js` | `../sdk/typescript` | `v1-forced` | 小而自足，断言容易被 reviewer 真正核验 |
+| `04_stateful_dialogue.js` | `../sdk/typescript` | `v1-forced` | 根目录必须有 `Cargo.toml` / `package.json` / `pyproject.toml` / `README.md` 之一，否则程序直接退出 |
+| `05_streaming_select.js` | 不需要 | `v1-forced` | 只 sleep |
+| `06_capability_matrix.js` | 不需要 | `full`（别的也能跑，只是缺席项更多） | 把每个只读工具各调一次，报告实际拿到的返回形状 |
+| `07_exec_session.js` | 不需要 | 任意 | `exec_command` 会话 + `write_stdin`；并行安全的工具与串行跑法对照计时 |
+| `08_file_and_image.js` | 写在 `--cwd` 指的地方 | 任意 + `CODEX_DEMO_SANDBOX=workspace-write` | `apply_patch` / `view_image` / `image()`，以及写操作要过的三道独立的门 |
+| `09_memory_clock_goal.js` | 不需要 | `full` | 带状态的那些工具：磁盘上的 memories、goal 状态机、plan、上下文预算、权限 |
+| `10_agent_lifecycle.js` | 不需要 | `v1-forced` / `full` 走 v1 分支，`v2` 走 v2 分支 | prelude 盖住的那层原始工具：`resume_agent`、`interrupt_agent`、多目标等待的陷阱、递归深度 |
 
-六个程序各自证明了什么，见[模式库](./06-patterns.md)。
+> [!TIP]
+> **demo 00 和 06-09 一个 agent 都不派，零模型调用，可以随便重跑。**
+> 这不是"因为它们跑得快"推出来的——把 provider 指到一个不通的地址
+> （`CODEX_DEMO_BASE_URL=http://127.0.0.1:1/v1`）它们四个照样跑完，输出不变。
+> 根线程从来不走模型回合，`thread/codeMode/exec` 直接跑程序，**任何 demo 产生的模型流量都来自它派出去的子 agent**。
+>
+> **换模型、换 provider、换 profile 之后跑 demo 06**：它会报告哪些工具在、哪些不在、不在的那些卡在哪道门上。
+
+各自证明了什么，见[模式库](./06-patterns.md)。
+
+---
+
+### 跑一个自带能力的包
+
+demo 是一个"用宿主给什么算什么"的散装 `.js`；**包**把能力带在身上：
+
+```bash
+./run.sh poas/00_echo v1-forced       # 目录直接跑，不用先打包
+codex exec --poa poas/00_echo         # 连 run.sh 都不要
+./build.sh poas/00_echo               # → ./00_echo.poa，给别人一个文件时才需要
+codex exec --poa ./00_echo.poa
+```
+
+`poas/00_echo` 是最小的那个：manifest 申报一个随包分发的 stdio MCP server，`main.js` 从 `ALL_TOOLS` 里把它找出来调一次。**它不需要 provider**——包本体不采样，`run.sh` 会为包目标兜底一套占位配置。
+
+包的格式、边界和两个必踩的坑，见[核心概念 §9](./03-concepts.md#9-poa-包自带能力的那条路)。
 
 ---
 

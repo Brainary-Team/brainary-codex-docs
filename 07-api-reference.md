@@ -1,6 +1,6 @@
 ---
 title: API 参考
-description: 12 个全局 primitive、12 个 prelude primitive、32 个内置工具的完整声明
+description: 12 个全局 primitive、16 个 prelude primitive、32 个内置工具的完整声明
 ---
 
 # API 参考
@@ -49,9 +49,12 @@ description: 12 个全局 primitive、12 个 prelude primitive、32 个内置工
 
 ---
 
-## 2. prelude primitive（12 个）
+## 2. prelude primitive（16 个）
 
-来自 `workflow-demos/lib/prelude.js`（174 行）。**这些不是 codex 内置的**——换一个不拼 prelude 的客户端，它们全都不存在。
+来自 `workflow-demos/lib/prelude.js`（243 行）。**这些不是 codex 内置的**——换一个不拼 prelude 的客户端，它们全都不存在。
+
+> [!CAUTION]
+> **写 `.poa` 包时这一整节都不适用。** 包的 `entry` 原样提交，不拼 prelude，这 16 个名字一个都没有。见[编写指南 §13](./05-writing.md#13-从-js-到-poa要改的四件事)。
 
 ### 2.1 派 agent / 收结果
 
@@ -90,6 +93,27 @@ description: 12 个全局 primitive、12 个 prelude primitive、32 个内置工
 | --- | --- | --- |
 | `AGENT_BACKEND` | 常量，`"v1"` / `"v2"` / `null` | 启动时扫一遍 `ALL_TOOLS` 自动判定后端。**`null` 就是这套配置下一个 agent 工具都没有** |
 | `requireAgents()` | 函数，返回后端名 | 断言有可用后端，没有就抛错——**且错误信息里带上当前全部可用工具名**，这是最快的排错入口 |
+
+### 2.4 能力探测（2026-08 新增）
+
+**为什么需要这一组**：可选工具组（memories、clock、MCP、provider 决定的那几个）**"这套配置下没有"是正常结果，不是 bug**。没有这几个函数，碰一下可选工具要么在 `tools.x is not a function` 上炸掉，要么每个调用点都手写一遍 try/catch。
+
+| 名字 | 签名 | 干什么 | 要注意 |
+| --- | --- | --- | --- |
+| `hasTool` | `hasTool(name)` | 这个名字在不在当前工具面上 | 就是 `ALL_TOOLS` 的一个 Set 查询，**启动时快照一次**——一次运行里工具面不会变 |
+| `callTool` | `callTool(name, args = {})` | 调一个工具，**永不抛**。返回 `{ name, status, value, error, ms }`，`status` 是 `"ok"` / `"absent"` / `"error"` | **`absent` 和 `error` 是两回事**，别合并处理：前者是"这套配置没装"，后者是"装了但调失败"。`args` 原样透传，所以 freeform 工具直接给字符串：`callTool("apply_patch", "*** Begin Patch\n...")` |
+| `shapeOf` | `shapeOf(value, depth = 1)` | 把一个运行时值描述成结构串，如 `object{output: string, exit_code: number}` | 给[那 12 个只声明 `Promise<unknown>` 的工具](#34-返回类型12-个没有形状承诺用之前先探一次)用的——**它们对返回形状没有任何承诺，唯一的办法就是看实际回来的是什么** |
+| `timed` | `timed(fn)` | 跑 `fn` 并带上墙钟耗时，**永不抛**。返回 `{ ok, value, error, ms }` | 用来把"真并行"和"串行"分开——两个都是 `Promise.all`，只有耗时能区分 |
+
+```js
+const r = await callTool("memories__list", {});
+if (r.status === "absent") log.push("memories 未配置，跳过");
+else if (r.status === "error") log.push(`memories 调用失败：${r.error}`);
+else log.push(`memories 返回 ${shapeOf(r.value)}，耗时 ${r.ms}ms`);
+```
+
+> [!TIP]
+> **包自带的工具不用走这一组。** 申报了的 MCP server 起不来会直接[拒跑](./03-concepts.md#9-poa-包自带能力的那条路)，所以它出现在 `ALL_TOOLS` 里就一定能调。需要探测的是宿主侧那些。
 
 ---
 
@@ -195,12 +219,24 @@ description: 12 个全局 primitive、12 个 prelude primitive、32 个内置工
 | [`mcp__probe__echo`](#mcp__probe__echo) | 示例：**有** `outputSchema` 时的渲染结果 | 探针 | 有条件 |
 | [`mcp__probe__no_output_schema`](#mcp__probe__no_output_schema) | 示例：**没有** `outputSchema` 时的渲染结果 | 探针 | 有条件 |
 
-> 除这 3 个 resource 工具外，每个 MCP server 的每个工具还会各渲染出一个 `mcp__<server>__<tool>`，数量取决于挂载了哪些 server。
+> 除这 3 个 resource 工具外，每个 MCP server 的每个工具还会各渲染出一个 `mcp__<server>__<tool>`，数量取决于挂载了哪些 server——**包括[包自带的那些](./03-concepts.md#9-poa-包自带能力的那条路)**。
+
+> [!CAUTION]
+> **`mcp__<server>__<tool>` 这个形状不是契约，别硬编码。** 前缀取决于 `prefix_mcp_tool_names()`，命名空间会被清洗，**重名时还会加哈希后缀**。正确写法是从 `ALL_TOOLS` 里按后缀匹配，并断言只命中一个：
+>
+> ```js
+> const matches = ALL_TOOLS.map((t) => t.name).filter((n) => /(^|__)echo__echo$/.test(n));
+> if (matches.length !== 1) throw new Error(`expected exactly one echo tool, found ${matches.length}`);
+> ```
+>
+> 那句断言不是冗余：**命名规则一变，没有断言就是静默调错工具。**
 
 > [!TIP]
 > **一般 MCP 工具的并行安全是"有条件"的，而这是唯一不动上游就能用的杠杆。**
 > 判据是「工具自己声明并行安全**或**带只读标注」——**一个把自己标成只读的 MCP 工具就是并行安全的**。
 > 想让派发出去的重活真的并行，把它放进标了只读的 MCP server 即可。
+>
+> **包自带的 server 也走这条判据**，但只走得通后半条：`ext/poa` 建的 config 里 `supports_parallel_tool_calls` 硬编码为 `false`，服务器级豁免用不了，**只能逐个工具标 `readOnlyHint`**。
 
 ### 3.2 由 provider 决定的三类
 

@@ -37,6 +37,7 @@ text(JSON.stringify(batch.map(({ handle, reply }) => ({
 | 初次接触 PoA，需要了解它解决什么问题 | [概览](./01-overview.md) → [快速开始](./02-quickstart.md) |
 | 环境已就绪，需要马上跑通 | [快速开始](./02-quickstart.md) |
 | 要动手写一个新程序 | [编写指南](./05-writing.md)，遇到具体形状去 [模式库](./06-patterns.md) |
+| 要把程序**打成包交给别人跑**（含自带 MCP） | [核心概念 §9](./03-concepts.md#9-poa-包自带能力的那条路) → [编写指南 §13](./05-writing.md#13-从-js-到-poa要改的四件事) |
 | 查某个函数收什么参数 | [API 参考](./07-api-reference.md) |
 | 程序行为不符合预期 | [故障排查](./09-troubleshooting.md) |
 | 判断某件事能不能做 | [边界与限制](./08-limits.md) |
@@ -49,11 +50,11 @@ text(JSON.stringify(batch.map(({ handle, reply }) => ({
 | --- | --- | --- |
 | 01 | [概览](./01-overview.md) | PoA 是什么、解决什么问题、它怎么接进 codex（code mode）、什么时候该用与不该用 |
 | 02 | [快速开始](./02-quickstart.md) | 环境准备 → 探针 → 跑通第一个程序 → 写出自己的第一个 |
-| 03 | [核心概念](./03-concepts.md) | 三个角色、cell、沙箱面、prelude 与内置的分界、两代后端 |
+| 03 | [核心概念](./03-concepts.md) | 三个角色、cell、沙箱面、prelude 与内置的分界、两代后端、**`.poa` 包与自带 MCP** |
 | 04 | [工作原理](./04-how-it-works.md) | code mode 是什么、`tools.foo()` 发生了什么、为什么并发不等于流式 |
 | 05 | [编写指南](./05-writing.md) | **主体文档。** 从空文件到能跑的完整动线，含四处必写的容错与调试习惯 |
 | 06 | [模式库](./06-patterns.md) | 四种可复用形状 + 一个负结果 + 六条反模式 |
-| 07 | [API 参考](./07-api-reference.md) | 12 个全局 primitive、12 个 prelude primitive、32 个内置工具的完整声明 |
+| 07 | [API 参考](./07-api-reference.md) | 12 个全局 primitive、16 个 prelude primitive、32 个内置工具的完整声明 |
 | 08 | [边界与限制](./08-limits.md) | 硬边界清单，以及每一条在写代码时的具体样子 |
 | 09 | [故障排查](./09-troubleshooting.md) | 症状 → 原因 → 处置；两个**不报错**的坑单独标出 |
 
@@ -66,6 +67,8 @@ text(JSON.stringify(batch.map(({ handle, reply }) => ({
 | 术语 | 含义 |
 | --- | --- |
 | **PoA** | Program of Agent，"驱动 agent 的程序"。既指开发者编写的那段 JavaScript，也指这整条通道 |
+| **`.poa` 包** | 分发形态：一个 zip，根上放 `manifest.toml`，里面是程序本体和它**自带的 MCP server**。提交接口只收这一种形状——手里只有一段 JS 时也包成一个"申报零能力"的包 |
+| **manifest** | 包里的 `manifest.toml`：`[poa]` 元数据 + `[[capabilities.mcp]]` 能力申报。**申报了的 server 起不来就拒跑** |
 | **cell** | 一次提交的那整段 JS 的一次运行。一次提交 = 一个 cell = 一次跑完 |
 | **code mode** | codex 的一种工具投送方式：所有工具挂在 JS 全局对象 `tools` 上，由沙箱里的 JS 调用。PoA 走的就是这条路 |
 | **子 agent** | 被 PoA 程序派出去的独立 AI 会话，有自己的上下文和工具 |
@@ -96,3 +99,5 @@ text(JSON.stringify(batch.map(({ handle, reply }) => ({
 **不覆盖**：codex 内核如何实现这条通道（合成工具调用、Rust 侧的分发链路）、code mode 沙箱本身的实现、子 agent 内部的模型行为。
 
 文档内容基于 brainary fork 当前的代码与 `workflow-demos/` 的实跑记录。**工具面会随模型、provider 与配置变化**——任何时候以[探针](./02-quickstart.md#1-第一步跑探针)的输出为准，而不是以本文的表格为准。
+
+**对齐到 `main` 的 `56a8b1307`（2026-08-20，PR #29 `poa-bundled-mcp` + PR #30 `poa-demo-coverage`）。** 上一版对齐的是 `810f6e65e`；这一版改动最大的是[核心概念 §9](./03-concepts.md#9-poa-包自带能力的那条路)（新增）与[边界与限制 §6/§7/§13](./08-limits.md)（原来的说法被推翻）。
