@@ -174,8 +174,11 @@ V8 是单线程的，它只负责等。多个工具调用是多条独立事件�
 > 但只走得通后半条——`ext/poa` 建的 server config 里 `supports_parallel_tool_calls` 硬编码为 `false`，
 > **服务器级的整体豁免用不了，只能逐个工具标 `readOnlyHint`**。
 >
-> 两个附带前提：被 tool_search 藏起来（`Hidden` 曝光度）的工具**不算并行安全**，哪怕标了只读；
-> 另外不标注还有个独立的后果——[默认审批模式下会触发 elicitation](./09-troubleshooting.md#1-症状速查表)。
+> 两个附带前提：`destructiveHint: true` 会**先短路**掉只读判定，三个标注要一起写；被 tool_search 藏起来
+> （`Hidden` 曝光度）的工具**不算并行安全**，哪怕标了只读。
+>
+> 另外，标注缺失还有个**比并行更严重**的独立后果：会触发审批，而在非 `never` 的审批策略下
+> [那是一个不可恢复的挂死](./03-concepts.md#9-poa-包自带能力的那条路)（issue #32）。
 
 ---
 

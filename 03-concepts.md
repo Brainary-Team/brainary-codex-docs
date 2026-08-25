@@ -347,8 +347,17 @@ annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false 
 
 标注的顺带好处：只读同时也是[并行安全的判据](./04-how-it-works.md#哪些工具是并行安全的)，所以包自带的只读 server **是可以真并行的**（`ext/poa` 建的 config 里 `supports_parallel_tool_calls` 硬编码为 `false`，服务器级的整体豁免用不了，**只能逐个工具标只读**）。
 
-> [!NOTE]
-> **标注缺失的后果是"调用报错"，不是"挂住"。** 前一版这里写的是"无人值守下就是挂死"，那是错的：`codex exec` 会**自动取消** elicitation，`run_workflow.py` 则会**自动批准**它，两条路都不会卡住。真会挂死的只有一种情况——**自研客户端收到 `mcpServer/elicitation/request` 却不应答**。
+> [!CAUTION]
+> **不标注的后果按 `approval_policy` 分叉，其中一支是不可恢复的挂死。**
+>
+> | 审批策略 | 后果 |
+> | --- | --- |
+> | `never`（**四个 profile 都是这个**） | 毫秒级自动 decline，客户端全程收不到请求。工具调用失败，**看起来像"人拒绝了"，其实人根本没被问** |
+> | 默认（`auto` / `on-request`） | **无限挂死。** 客户端收得到请求、也答了，但**答案被 core 丢弃**——审批回执登记在 `active_turn` 上，而 cell 从不建 `active_turn`。`yield_time_ms` 也不生效，钉死的是整条 `thread/codeMode/exec` RPC，客户端跟着一起卡 |
+>
+> 后一支就是 **issue #32**，已有实测（同一个不带 `readOnlyHint` 的工具，放进普通 turn 或子 agent 里 0.6 秒走通，放进 code mode 必挂）。**没有任何一层超时兜得住**——MCP 侧那 300 秒的默认超时在挂点的下游，压根没轮到它。
+>
+> 所以标注这件事对包作者不是"避免弹窗"，是**避免一个查不出来的死锁**。
 
 ### 边界
 

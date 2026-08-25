@@ -64,8 +64,8 @@ description: 症状 → 原因 → 处置；两个不报错的坑单独标出
 | `refusing to run: required MCP server(s) unavailable: X` | 包申报的 server 没起来，**或起来了但一个工具都没报** | 先手动跑一遍 `shell` 那条命令行；注意解出来的文件权限固定 `0644`，命令行必须自带解释器 |
 | 包跑起来报 `runBatch is not defined` | 包的 `entry` 是**原样提交**的，不拼 prelude | 把 prelude 抄进包里，见[编写指南 §13](./05-writing.md#13-从-js-到-poa要改的五件事) |
 | 包里的工具调用报 `tools.mcp__x__y is not a function` | 工具名被硬编码了；前缀会被清洗、重名时加哈希后缀 | 从 `ALL_TOOLS` 按后缀匹配 + 断言只命中一个 |
-| 包内某个工具调用被拒 / 报错，但工具明明在 `ALL_TOOLS` 里 | 那个工具**没标注**，于是触发审批 elicitation。`codex exec` 会自动取消它、`run_workflow.py` 会自动批准它——所以**表现是报错或被拒，不是挂住** | 在 server 的 `tools/list` 里给每个工具写 `annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }`，三个都写 |
-| 用**自研客户端**跑包，卡住不动 | 收到了 `mcpServer/elicitation/request` 却没应答。这是唯一真会挂死的情形 | 客户端必须应答（自动批准或自动取消都行）；同时按上一行把工具标注补齐 |
+| 包内某个工具调用被拒，但工具明明在 `ALL_TOOLS` 里 | 那个工具**没标注**→ 需要审批 → 而四个 profile 都是 `approval_policy = "never"`，于是毫秒级自动 decline。**客户端全程收不到请求**，看起来像"人拒绝了"，其实人没被问 | 在 server 的 `tools/list` 里给每个工具写 `annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }`，三个都写 |
+| **跑包时整条命令卡死，`yield_time_ms` 也不救**（issue #32） | 同样是工具没标注，但 `approval_policy` **不是** `never`。审批回执登记在 `active_turn` 上，而 cell 从不建 `active_turn` → 客户端答了也没用，答案被 core 丢弃，`rx_response` 永不返回 | 只能杀进程。根治见 issue #32；**包作者侧的唯一解是把标注补齐**——它同时买到"躲开这个死锁"和"并行安全"两件事 |
 | `codex exec --poa` 报错并 `exit(2)` | manifest 在**本地**就被校验掉了，一个会话都不会起 | 照错误文案改；`network` 传输、非 `.js/.mjs` 的 `entry`、`poa_api_version != 1`、重名 server 都是这里拒的。⚠️ 报错文案里可能出现 `packageBase64` 这个字段名——**线上并不存在这个字段**（实际是 `package`），是上游没改干净的残留 |
 | `codex exec --poa` 报 `--poa cannot be combined with a subcommand.` | `--poa` 与 `resume` / `review` 子命令互斥，也与位置参数 prompt 互斥 | 包是一次 cell，不是一轮采样循环，两者不能叠 |
 | 绕开 `run.sh` 跑包，报没有 `exec` 工具 / cell 起不来 | `code_mode` feature **默认关闭**，`--poa` 不会替你打开 | 当前 `CODEX_HOME` 的 `config.toml` 里加 `[features.code_mode] enabled = true`，或直接用 `run.sh` |
