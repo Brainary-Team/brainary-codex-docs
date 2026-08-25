@@ -100,4 +100,4 @@ text(JSON.stringify(batch.map(({ handle, reply }) => ({
 
 文档内容基于 brainary fork 当前的代码与 `workflow-demos/` 的实跑记录。**工具面会随模型、provider 与配置变化**——任何时候以[探针](./02-quickstart.md#1-第一步跑探针)的输出为准，而不是以本文的表格为准。
 
-**对齐到 `main` 的 `56a8b1307`（2026-08-20，PR #29 `poa-bundled-mcp` + PR #30 `poa-demo-coverage`）。** 上一版对齐的是 `810f6e65e`；这一版改动最大的是[核心概念 §9](./03-concepts.md#9-poa-包自带能力的那条路)（新增）与[边界与限制 §6/§7/§13](./08-limits.md)（原来的说法被推翻）。
+**全文描述的是 `main` 分支 `56a8b1307`（2026-08-20）时的实现。** 代码与文档之间只有这一个锚点，读到与实际行为不符的地方，以代码为准。

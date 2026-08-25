@@ -94,7 +94,7 @@ description: 12 个全局 primitive、16 个 prelude primitive、32 个内置工
 | `AGENT_BACKEND` | 常量，`"v1"` / `"v2"` / `null` | 启动时扫一遍 `ALL_TOOLS` 自动判定后端。**`null` 就是这套配置下一个 agent 工具都没有** |
 | `requireAgents()` | 函数，返回后端名 | 断言有可用后端，没有就抛错——**且错误信息里带上当前全部可用工具名**，这是最快的排错入口 |
 
-### 2.4 能力探测（2026-08 新增）
+### 2.4 能力探测
 
 **为什么需要这一组**：可选工具组（memories、clock、MCP、provider 决定的那几个）**"这套配置下没有"是正常结果，不是 bug**。没有这几个函数，碰一下可选工具要么在 `tools.x is not a function` 上炸掉，要么每个调用点都手写一遍 try/catch。
 

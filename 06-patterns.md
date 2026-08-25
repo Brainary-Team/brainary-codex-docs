@@ -266,7 +266,7 @@ matches_duration_order: ...  // 到达顺序 = 耗时顺序？ 预期 false
 | `09_memory_clock_goal.js` | 带状态的工具怎么探；以及给可能阻塞的工具套超时的写法 |
 | `10_agent_lifecycle.js` | prelude 盖住的那层原始工具长什么样——两代后端各跑一遍 |
 
-它们**一个 agent 都不派**（除了 10），零模型调用，可以随便重跑。写法上要抄的是 `callTool` / `shapeOf` 这一组[能力探测 primitive](./07-api-reference.md#24-能力探测2026-08-新增)的用法：**"这套配置下没有" 是正常结果，不是 bug。**
+它们**一个 agent 都不派**（除了 10），零模型调用，可以随便重跑。写法上要抄的是 `callTool` / `shapeOf` 这一组[能力探测 primitive](./07-api-reference.md#24-能力探测)的用法：**"这套配置下没有" 是正常结果，不是 bug。**
 
 ---
 

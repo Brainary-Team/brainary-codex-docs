@@ -90,7 +90,7 @@ description: 硬边界清单，以及每一条在写代码时的具体样子
 **唯一不改上游的绕法**：把重活放进一个**标了只读的 MCP server**——那样它就是并行安全的（判据见 [API 参考 §3.1](./07-api-reference.md#mcp5)）。
 
 > [!TIP]
-> **这条绕法现在不需要宿主配合了。** 包自带的 stdio server 也走同一条判据——「工具自己声明并行安全**或**带只读标注」。包这边走不通前半条（`ext/poa` 建的 server config 里 `supports_parallel_tool_calls` 硬编码为 `false`，**服务器级的整体豁免用不了**），所以只能**逐个工具标只读**。
+> **这条绕法不需要宿主配合。** 包自带的 stdio server 也走同一条判据——「工具自己声明并行安全**或**带只读标注」。包这边走不通前半条（`ext/poa` 建的 server config 里 `supports_parallel_tool_calls` 硬编码为 `false`，**服务器级的整体豁免用不了**），所以只能**逐个工具标只读**。
 >
 > 两个附带前提别漏：`destructiveHint: true` 会**先短路**掉只读判定，三个标注要一起写；被 tool_search 藏起来的工具（`Hidden` 曝光度）也不算并行安全。写法见[核心概念 §9](./03-concepts.md#9-poa-包自带能力的那条路)。
 
@@ -113,9 +113,9 @@ description: 硬边界清单，以及每一条在写代码时的具体样子
 ## 6. 自带能力只到 stdio MCP
 
 > [!NOTE]
-> **这一条在 2026-08 被部分解除。** 原来的说法是"能力只能来自宿主配置，程序无法像安装包那样捆绑自己的 MCP server"——现在可以了：把程序打成一个 `.poa` 包，在 `manifest.toml` 里写 `[[capabilities.mcp]]`，服务端解包后按 thread 起这些 server，随 thread 生死，不写全局 `config.toml`。写法见[核心概念 §9](./03-concepts.md#9-poa-包自带能力的那条路)。
+> **程序可以自带能力。** 把它打成一个 `.poa` 包，在 `manifest.toml` 里写 `[[capabilities.mcp]]`，服务端解包后按 thread 起这些 server，随 thread 生死，不写全局 `config.toml`。写法见[核心概念 §9](./03-concepts.md#9-poa-包自带能力的那条路)。
 
-解除的是"能不能自带"，**没解除的是自带到什么程度**。当前的边界：
+**这一条限制的不是"能不能自带"，而是"自带到什么程度"。** 当前的边界：
 
 | 能自带 | 不能自带 |
 | --- | --- |
