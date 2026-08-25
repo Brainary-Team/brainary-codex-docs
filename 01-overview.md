@@ -188,7 +188,7 @@ thread/codeMode/exec   { threadId, package }  →  { output }
 
 | 想做的事 | 当前为什么做不到 | 在推进的是 |
 | --- | --- | --- |
-| 中途问用户问题 | 内置的 `request_user_input` 有三道门，每一道单独就足以挡死：要开实验开关、曝光度是 `DirectModelOnly`（code mode 根本拿不到）、且只有根线程能用 | **issue #21。** 实施方案已定、尚未落地：由运行器（app-server 客户端）经 MCP elicitation 承载，脚本侧仍是一次普通的工具调用。**注意 `codex exec --poa` 已明确不作为交互形态**——`codex exec` 在 `ConfigOverrides` 里把审批策略设成 `never`，这一层压在 `-c` 之上、覆盖不掉，问人的请求一律自动 decline |
+| 中途问用户问题 | 内置的 `request_user_input` 有三道门，每一道单独就足以挡死：要开实验开关、曝光度是 `DirectModelOnly`（code mode 根本拿不到）、且只有根线程能用 | **issue #21** 正在推进，尚未落地。**但有一条与方案无关、现在就成立的边界：`codex exec --poa` 这条路问不到人**——`codex exec` 在 `ConfigOverrides` 里把审批策略设成 `never`，这一层压在 `-c` 之上、覆盖不掉，问人的请求一律自动 decline |
 | 按完成顺序边收边处理（流式）、早停、等待期间再派新的 | 程序侧的等待调用串行，详见[工作原理](./04-how-it-works.md#4-并发不等于流式) | **issue #17。** 三条路待选。**今天就有一条绕法**：把重活放进一个标了只读的 MCP 工具——那类工具已经是并行安全的，而且[可以随包分发](./03-concepts.md#9-poa-包自带能力的那条路) |
 | 中途取消一个跑飞的程序 | 没有任何 RPC 能中止正在跑的 cell：取消句柄是 `code_mode_exec` 里的函数内局部变量，外面拿不到 | **issue #16。** 底层的终止能力本来就有，缺的是把句柄提到 RPC 层 |
 | 超时之后接着跑 | yield 之后没有配套手段接回来 | **issue #15。** 有个前提要连带解决：`store()` 的写入在 yield 时不提交，所以检查点不能指望它 |
