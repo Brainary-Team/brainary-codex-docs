@@ -64,7 +64,7 @@ description: 症状 → 原因 → 处置；两个不报错的坑单独标出
 | `refusing to run: required MCP server(s) unavailable: X` | 包申报的 server 没起来，**或起来了但一个工具都没报** | 先手动跑一遍 `shell` 那条命令行；注意解出来的文件权限固定 `0644`，命令行必须自带解释器 |
 | 包跑起来报 `runBatch is not defined` | 包的 `entry` 是**原样提交**的，不拼 prelude | 把 prelude 抄进包里，见[编写指南 §13](./05-writing.md#13-从-js-到-poa要改的五件事) |
 | 包里的工具调用报 `tools.mcp__x__y is not a function` | 工具名被硬编码了；前缀会被清洗、重名时加哈希后缀 | 从 `ALL_TOOLS` 按后缀匹配 + 断言只命中一个 |
-| 包内某个工具调用被拒，但工具明明在 `ALL_TOOLS` 里 | 那个工具**没标注**→ 需要审批 → 而四个 profile 都是 `approval_policy = "never"`，于是毫秒级自动 decline。**客户端全程收不到请求**，看起来像"人拒绝了"，其实人没被问 | 在 server 的 `tools/list` 里给每个工具写 `annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }`，三个都写 |
+| 包内某个工具调用被拒，但工具明明在 `ALL_TOOLS` 里 | 那个工具**没标注**→ 需要审批 → 而四个 profile 都是 `approval_policy = "never"`，于是毫秒级自动 decline。**客户端全程收不到请求**，看起来像"人拒绝了"，其实人没被问 | 先用 `CODEX_RPC_DEBUG=1` 确认客户端**确实一条请求都没收到**（见 [§6 ③](#6-诊断动作清单)），坐实是"没被问"而不是"被拒了"；然后在 server 的 `tools/list` 里给每个工具写 `annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }`，三个都写 |
 | **跑包时整条命令卡死，`yield_time_ms` 也不救**（issue #32） | 同样是工具没标注，但 `approval_policy` **不是** `never`。审批回执登记在 `active_turn` 上，而 cell 从不建 `active_turn` → 客户端答了也没用，答案被 core 丢弃，`rx_response` 永不返回 | 只能杀进程。根治见 issue #32；**包作者侧的唯一解是把标注补齐**——它同时买到"躲开这个死锁"和"并行安全"两件事 |
 | `codex exec --poa` 报错并 `exit(2)` | manifest 在**本地**就被校验掉了，一个会话都不会起 | 照错误文案改；`network` 传输、非 `.js/.mjs` 的 `entry`、`poa_api_version != 1`、重名 server 都是这里拒的。⚠️ 报错文案里可能出现 `packageBase64` 这个字段名——**线上并不存在这个字段**（实际是 `package`），是上游没改干净的残留 |
 | `codex exec --poa` 报 `--poa cannot be combined with a subcommand.` | `--poa` 与 `resume` / `review` 子命令互斥，也与位置参数 prompt 互斥 | 包是一次 cell，不是一轮采样循环，两者不能叠 |
@@ -168,9 +168,17 @@ cd workflow-demos
 ./run.sh demos/90_hello.js v1-forced --raw
 ```
 
-**③ 把规模压到 1，超时压到 60000。** 让一次失败只花一个 agent 的时间。
+**③ 怀疑是审批问题时，用 `CODEX_RPC_DEBUG=1` 看服务端到底问没问。**
 
-**④ 把 `log` 数组交出去。** 在 `catch` / `finally` 里也要 `text()`，否则那次运行的全部信息都没了。
+```bash
+CODEX_RPC_DEBUG=1 ./run.sh demos/00_probe.js v1-forced
+```
+
+运行器会把**每一条服务端发回来的请求**连同参数打到 stderr。这是区分"人拒绝了"和"人根本没被问"的唯一手段——`approval_policy = never` 下 core 在毫秒级自己 decline，客户端**一条请求都收不到**，屏幕上什么都不会出现；而如果请求确实到了客户端，这里就能看见它的 `_meta` 里带没带 `codex_approval_kind`（带的是工具审批，运行器 `accept`；不带的是 server 真的在问人，运行器 `decline`）。
+
+**④ 把规模压到 1，超时压到 60000。** 让一次失败只花一个 agent 的时间。
+
+**⑤ 把 `log` 数组交出去。** 在 `catch` / `finally` 里也要 `text()`，否则那次运行的全部信息都没了。
 
 ```js
 const log = [];
@@ -183,7 +191,7 @@ try {
 }
 ```
 
-**⑤ 用 `requireAgents()` 早点失败。** 它的异常消息里会列出当前全部可用工具名——**这是最快的排错入口**。
+**⑥ 用 `requireAgents()` 早点失败。** 它的异常消息里会列出当前全部可用工具名——**这是最快的排错入口**。
 
 ---
 
