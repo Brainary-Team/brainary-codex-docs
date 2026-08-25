@@ -97,7 +97,9 @@ description: 硬边界清单，以及每一条在写代码时的具体样子
 > [!TIP]
 > **这条绕法不需要宿主配合。** 包自带的 stdio server 也走同一条判据——「工具自己声明并行安全**或**带只读标注」。包这边走不通前半条（`ext/poa` 建的 server config 里 `supports_parallel_tool_calls` 硬编码为 `false`，**服务器级的整体豁免用不了**），所以只能**逐个工具标只读**。
 >
-> 两个附带前提别漏：`destructiveHint: true` 会**先短路**掉只读判定，三个标注要一起写；被 tool_search 藏起来的工具（`Hidden` 曝光度）也不算并行安全。写法见[核心概念 §9](./03-concepts.md#9-poa-包自带能力的那条路)。
+> 一个附带前提别漏：被 tool_search 藏起来的工具（`Hidden` 曝光度）也不算并行安全，哪怕标了只读。
+>
+> 而 `destructiveHint` 在**这条判据里不参与**——它管的是审批那条，那边多一道 `destructiveHint === true` 的短路。所以 `{readOnlyHint: true, destructiveHint: true}` 的工具是并行安全的，却照样要审批。**三个标注一起写是审批那边的要求**，写法见[核心概念 §9](./03-concepts.md#9-poa-包自带能力的那条路)。
 
 ---
 

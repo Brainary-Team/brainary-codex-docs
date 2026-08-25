@@ -105,7 +105,7 @@ graph TD
 | 类别 | 有哪些 | 来源 | 改得动吗 |
 | --- | --- | --- | --- |
 | **prelude 提供的** | `AGENT_BACKEND`、`requireAgents`、`mapLimit`、`spawnAgent`、`spawnMany`、`collectAll`、`runBatch`、`sendAndWait`、`closeAll`、`parseJsonReply`、`shellLines`、`SAFE_NAME`、`hasTool`、`callTool`、`shapeOf`、`timed` | 仓库自己写的一层薄封装 | ✅ 就在 `workflow-demos/lib/prelude.js`，243 行，不是黑盒 |
-| **codex 内置的** | `tools`、`ALL_TOOLS`、`text`、`notify`、`exit`、`store`、`load`、`setTimeout` 等 12 个全局 primitive | codex 本体 | ❌ 只能查，改不了 |
+| **codex 内置的** | 全局对象 `tools`，外加 `ALL_TOOLS`、`text`、`notify`、`exit`、`store`、`load`、`setTimeout` 等 12 个全局 primitive | codex 本体 | ❌ 只能查，改不了 |
 
 **为什么这个区分重要**：
 
@@ -249,7 +249,7 @@ graph LR
 
 **当前这条通道上没有任何人工介入点**，有两个并列的原因：
 
-- 服务端发回来的请求由客户端**代答，不经过人**。`runner/rpc_client.py` 分两种答法：codex 借 elicitation 发来的**工具审批**（`_meta` 里带 `codex_approval_kind`）一律 `accept`——理由是能力已经在 manifest 里申报过，这里放行是照申报办事，不是无差别点头；而**真正来自 MCP server 的提问**一律 `decline`，因为这条链路上没有人能答。配合 profile 里的"从不询问"审批策略，整条链路上**不存在任何人工介入点**
+- 服务端发回来的请求由客户端**代答，不经过人**。`runner/rpc_client.py` 对 elicitation 分两种答法：codex 借 elicitation 发来的**工具审批**（`_meta` 里带 `codex_approval_kind`）一律 `accept`——理由是能力已经在 manifest 里申报过，这里放行是照申报办事，不是无差别点头；而**真正来自 MCP server 的提问**一律 `decline`，因为这条链路上没有人能答。其余方法的反向请求则统一回一个默认的"已批准"。配合 profile 里的"从不询问"审批策略，整条链路上**不存在任何人工介入点**
 - 程序**没有跟人对话的手段**——那个能问用户问题的内置工具只给模型，程序调不到，[三道门](./08-limits.md#3-无人值守)每一道单独就够挡死
 
 **推论**：任何一次阻塞询问都会把整条链路挂死，所以 PoA 程序必须能在没有人的情况下从头跑到尾。需要人判断的地方，只能把判断也写成代码（比如数票），或者把问题留到最后输出里。

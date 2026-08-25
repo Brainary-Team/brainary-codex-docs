@@ -30,7 +30,7 @@ description: 环境准备 → 探针 → 跑通第一个程序 → 写出自己�
 做法是先手工下载这份沙箱版预编译库，把 `RUSTY_V8_ARCHIVE` 与 `RUSTY_V8_SRC_BINDING_PATH` 指过去，再构建。完整命令见 `workflow-demos/README.md` 的 *Building the binaries* 一节。
 
 > [!CAUTION]
-> **不带这两个环境变量时，失败发生在构建阶段，而不是运行阶段。** `build.rs` 会因下载 404 直接 panic（`.github/workflows/ci.yml:88-92` 的注释即为此事），你**拿不到**那个二进制——不是拿到一个建好了却跑不起 code mode 的二进制。所以这个坑在构建期就叫得很响、容易定位，不会留到跑 demo 才暴露；与下面 0.2 的 `CODEX_BIN` 正相反，那个是运行期静默拿错二进制。
+> **不带这两个环境变量时，失败发生在构建阶段，而不是运行阶段。** `build.rs` 会因下载 404 直接 panic（`.github/workflows/ci.yml:100-103` 的注释即为此事），你**拿不到**那个二进制——不是拿到一个建好了却跑不起 code mode 的二进制。所以这个坑在构建期就叫得很响、容易定位，不会留到跑 demo 才暴露；与下面 0.2 的 `CODEX_BIN` 正相反，那个是运行期静默拿错二进制。
 
 > [!WARNING]
 > **两个二进制必须在同一个目录里。** codex 是按自己所在目录去找 `codex-code-mode-host` 的。正常 `cargo build` 天然满足这一点，但把 `codex` 单独拷贝到别处就会失败。
