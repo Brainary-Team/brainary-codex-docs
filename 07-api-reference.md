@@ -7,7 +7,7 @@ description: 12 个全局 primitive、16 个 prelude primitive、32 个内置工
 
 [← 模式库](./06-patterns.md) · [返回目录](./index.md) · 下一篇：[边界与限制](./08-limits.md)
 
-**这一篇是查询用的参考表，不是叙述性文档，不必顺序读完。**
+这一篇是查询用的参考表，不必顺序读完。
 
 三类东西的来源不同，别混：
 
@@ -51,7 +51,7 @@ description: 12 个全局 primitive、16 个 prelude primitive、32 个内置工
 
 ## 2. prelude primitive（16 个）
 
-> **⚠ 快照，不是契约。** 这一整节描述的是 `workflow-demos/lib/prelude.js`（243 行）这一层**本仓自备的封装**，既不是 codex 内置的，也不是 brainary 的接口契约——换一个不拼 prelude 的客户端，下面这 16 个名字全都不存在。
+> **⚠ 快照，不是契约。** 这一整节描述的是 `workflow-demos/lib/prelude.js`（243 行）这一层本仓自备的封装，既不是 codex 内置的，也不是 brainary 的接口契约。换一个不拼 prelude 的客户端，下面这 16 个名字全都不存在。
 
 > [!CAUTION]
 > **写 `.poa` 包时这一整节都不适用。** 包的 `entry` 原样提交，不拼 prelude，这 16 个名字一个都没有。见[编写指南 §13](./05-writing.md#13-从-js-到-poa要改的五件事)。
@@ -78,13 +78,13 @@ description: 12 个全局 primitive、16 个 prelude primitive、32 个内置工
 
 > [!WARNING]
 > **`parseJsonReply` 的贪婪匹配有一个高频触发场景。**
-> 它用的是 `/\{[\s\S]*\}/`——从第一个 `{` 一路吃到最后一个 `}`。
+> 它用的是 `/\{[\s\S]*\}/`，从第一个 `{` 一路吃到最后一个 `}`。
 >
-> 而[编写指南 §5](./05-writing.md#5-写子-agent-的任务文字) 推荐的 prompt 模板里**本身就带一段 `{...}` 格式示例**。
-> agent 只要在正式答案前把那段模板复述一遍，两段 `{}` 就被连成一整块 → **`JSON.parse` 抛错，
-> `value` 为 `null`**，而不是退回前面那一段。
+> 而[编写指南 §5](./05-writing.md#5-写子-agent-的任务文字) 推荐的 prompt 模板里本身就带一段 `{...}` 格式示例。
+> agent 只要在正式答案前把那段模板复述一遍，两段 `{}` 就被连成一整块 → `JSON.parse` 抛错、
+> `value` 为 `null`，而不是退回前面那一段。
 >
-> 这是 `succeeded / total` 掉下来的常见原因之一。在 prompt 里补一句 `不要复述格式说明` 能挡掉大部分；
+> 这是 `succeeded / total` 掉下来的常见原因之一。在 prompt 里补一句 `不要复述格式说明` 能挡掉大部分，
 > 剩下的靠 `error` 分支兜住并把原文留下来。
 
 ### 2.3 环境探测
@@ -96,7 +96,7 @@ description: 12 个全局 primitive、16 个 prelude primitive、32 个内置工
 
 ### 2.4 能力探测
 
-**为什么需要这一组**：可选工具组（memories、clock、MCP、provider 决定的那几个）**"这套配置下没有"是正常结果，不是 bug**。没有这几个函数，碰一下可选工具要么在 `tools.x is not a function` 上炸掉，要么每个调用点都手写一遍 try/catch。
+这一组存在的理由：可选工具组（memories、clock、MCP、provider 决定的那几个）**"这套配置下没有"是正常结果，不是 bug**。没有这几个函数，碰一下可选工具要么在 `tools.x is not a function` 上炸掉，要么每个调用点都手写一遍 try/catch。
 
 | 名字 | 签名 | 干什么 | 要注意 |
 | --- | --- | --- | --- |
@@ -123,7 +123,7 @@ else log.push(`memories 返回 ${shapeOf(r.value)}，耗时 ${r.ms}ms`);
 
 ### 3.1 速查表
 
-> **⚠ 快照，不是契约。** 这张表是一次实测的结果，**只说明"大概会看到什么"**。工具面随模型、provider 与配置变化，现在实际有什么以探针输出的 `all_tools` 为准。
+> **⚠ 快照，不是契约。** 这张表是一次实测的结果，只说明"大概会看到什么"。工具面随模型、provider 与配置变化，现在实际有什么以探针输出的 `all_tools` 为准。
 
 「默认可得」一列：
 
@@ -144,10 +144,10 @@ else log.push(`memories 返回 ${shapeOf(r.value)}，耗时 ${r.ms}ms`);
 | [`apply_patch`](#apply_patch) | 编辑文件。**入参是裸字符串不是对象** | ✅ 需有 environment | ❌ |
 | [`view_image`](#view_image) | 把磁盘上已存在的本地图片读进上下文 | ✅ 需有 environment | ✅ |
 
-> **shell 工具二选一，但依据不是操作系统。** 判定在 `codex-rs/tools/src/tool_config.rs:81` 的 `shell_type_for_model_and_features()`：unified exec feature 开启且 `conpty_supported()` 为真 → `exec_command` + `write_stdin`；否则回落到 `shell_command`。而 `conpty_supported()`（`codex-rs/utils/pty/src/pty.rs:47-51`）在**非 Windows 上恒为真**，在 Windows 上只要 Build ≥ `MIN_CONPTY_BUILD` 也为真——**所以现代 Windows 同样拿到 `exec_command`，只有 ConPTY 不可用的老 Windows 才回落**。`shell_command` 另有一个前提：`environments.single_local_environment().is_some()`（`spec_plan.rs:826`），非单一本地环境时它根本不注册。两者**参数名还不一样**（`cmd` vs `command`）。
+> **shell 工具二选一，但依据不是操作系统。** 判定在 `codex-rs/tools/src/tool_config.rs:81` 的 `shell_type_for_model_and_features()`：unified exec feature 开启且 `conpty_supported()` 为真 → `exec_command` + `write_stdin`；否则回落到 `shell_command`。而 `conpty_supported()`（`codex-rs/utils/pty/src/pty.rs:47-51`）在非 Windows 上恒为真，在 Windows 上只要 Build ≥ `MIN_CONPTY_BUILD` 也为真，所以现代 Windows 同样拿到 `exec_command`，只有 ConPTY 不可用的老 Windows 才回落。`shell_command` 另有一个前提：`environments.single_local_environment().is_some()`（`spec_plan.rs:826`），非单一本地环境时它根本不注册。两者参数名还不一样（`cmd` vs `command`）。
 
 > [!NOTE]
-> **走 `exec_command` 这条路时，`shell_command` 其实也被注册了，但 PoA 调不到。** `spec_plan.rs:846-853` 会把它以 `ToolExposure::Hidden` 注册，注释写明是为兼容 legacy；而 `ToolExposure::is_available_in_code_mode()`（`codex-rs/tools/src/tool_executor.rs:93-98`）把 `Hidden` 判为 `false`。所以它不进 `ALL_TOOLS`、`tools.shell_command(...)` 也调不到——在 `ALL_TOOLS` 里找不到它是**正常现象**，不是配置错了。
+> **走 `exec_command` 这条路时，`shell_command` 其实也被注册了，但 PoA 调不到。** `spec_plan.rs:846-853` 会把它以 `ToolExposure::Hidden` 注册，注释写明是为兼容 legacy；而 `ToolExposure::is_available_in_code_mode()`（`codex-rs/tools/src/tool_executor.rs:93-98`）把 `Hidden` 判为 `false`。所以它不进 `ALL_TOOLS`、`tools.shell_command(...)` 也调不到。在 `ALL_TOOLS` 里找不到它是正常现象，不是配置错了。
 
 #### 计划与目标（4）
 
@@ -158,7 +158,7 @@ else log.push(`memories 返回 ${shapeOf(r.value)}，耗时 ${r.ms}ms`);
 | [`get_goal`](#get_goal) | 读当前目标的状态、预算、用量 | ✅ |
 | [`update_goal`](#update_goal) | 把目标标记为 `complete` 或 `blocked` | ✅ |
 
-> **这一组 PoA 里基本用不上**——它们是给 AI 向人展示进度用的，程序侧用普通变量记状态即可。
+> **这一组 PoA 里基本用不上**：它们是给 AI 向人展示进度用的，程序侧用普通变量记状态即可。
 
 #### 上下文与权限（2）
 
@@ -196,7 +196,7 @@ else log.push(`memories 返回 ${shapeOf(r.value)}，耗时 ${r.ms}ms`);
 | [`multi_agent_v1__resume_agent`](#multi_agent_v1__resume_agent) | 恢复已关闭的代理 | ⚠ 见下 |
 | [`multi_agent_v1__close_agent`](#multi_agent_v1__close_agent) | 关闭代理及其后代，**释放并发额度** | ⚠ 见下 |
 
-> 这 5 条在默认配置下是 `Deferred`：**调得通，但声明不出现**，`ALL_TOOLS` 里也只有名字和一句描述。下面的声明因此格外有价值——那是运行时根本查不到的东西。
+> 这 5 条在默认配置下是 `Deferred`：**调得通，但声明不出现**，`ALL_TOOLS` 里也只有名字和一句描述。下面的声明因此格外有价值，那是运行时根本查不到的东西。
 
 #### 子代理 v2（6）
 
@@ -231,18 +231,18 @@ else log.push(`memories 返回 ${shapeOf(r.value)}，耗时 ${r.ms}ms`);
 > if (matches.length !== 1) throw new Error(`expected exactly one echo tool, found ${matches.length}`);
 > ```
 >
-> 那句断言不是冗余：**命名规则一变，没有断言就是静默调错工具。**
+> 那句断言不是冗余：命名规则一变，没有断言就是静默调错工具。
 
 > [!TIP]
 > **一般 MCP 工具的并行安全是"有条件"的，而这是唯一不动上游就能用的杠杆。**
-> 判据是「工具自己声明并行安全**或**带只读标注」——**一个把自己标成只读的 MCP 工具就是并行安全的**。
+> 判据是「工具自己声明并行安全**或**带只读标注」，所以一个把自己标成只读的 MCP 工具就是并行安全的。
 > 想让派发出去的重活真的并行，把它放进标了只读的 MCP server 即可。
 >
-> **包自带的 server 也走这条判据**，但只走得通后半条：`ext/poa` 建的 config 里 `supports_parallel_tool_calls` 硬编码为 `false`，服务器级豁免用不了，**只能逐个工具标 `readOnlyHint`**。
+> 包自带的 server 也走这条判据，但只走得通后半条：`ext/poa` 建的 config 里 `supports_parallel_tool_calls` 硬编码为 `false`，服务器级豁免用不了，只能逐个工具标 `readOnlyHint`。
 
 ### 3.2 由 provider 决定的三类
 
-**这三类跟 feature 开关无关，是 provider 的能力决定的**，所以在具体环境里可能有也可能没有。**跑探针看 `all_tools` 是唯一可靠的判断方式。**
+**这三类跟 feature 开关无关，是 provider 的能力决定的**，所以在具体环境里可能有也可能没有。跑探针看 `all_tools` 是唯一可靠的判断方式。
 
 | 工具 | 作用 | 门槛 |
 | --- | --- | --- |
@@ -253,7 +253,7 @@ else log.push(`memories 返回 ${shapeOf(r.value)}，耗时 ${r.ms}ms`);
 > [!NOTE]
 > **在 code mode 会话里，"联网搜索是服务端 hosted 工具、PoA 碰不到"这个说法是反的。**
 > code mode 那几个模型根本不会收到 hosted 版的搜索规格；同一条件下能出现的反而是扩展工具 `web__run`，
-> 而它是**并行安全的**。
+> 而它是并行安全的。
 
 ### 3.3 PoA 拿不到的
 
@@ -267,17 +267,17 @@ else log.push(`memories 返回 ${shapeOf(r.value)}，耗时 ${r.ms}ms`);
 | hosted 版联网搜索 | 同上，同一行代码。code mode 会话里根本不会下发，取而代之的是 `web__run` | ❌ 同上 |
 
 > [!NOTE]
-> **两类机制的区别有实际后果，别混。** 曝光度类的能靠配置或 feature 翻盘；spec 种类类的挡在 `code_mode_tool_definitions_for_spec()` 的这一行：
+> **两类机制的区别有实际后果，别混。** 曝光度类的能靠配置或 feature 翻盘；按 spec 种类丢弃的那类挡在 `code_mode_tool_definitions_for_spec()` 的这一行：
 >
 > ```rust
 > ToolSpec::ToolSearch { .. } | ToolSpec::WebSearch { .. } => Vec::new(),
 > ```
 >
-> 它在生成 code mode 嵌套工具定义时直接返回空，**曝光度调成什么都进不来**。
+> 它在生成 code mode 嵌套工具定义时直接返回空，曝光度调成什么都进不来。
 
 ### 3.4 返回类型：12 个没有形状承诺，用之前先探一次
 
-下表的计数是一次快照，与 §4 的声明同源；上游增删工具后**不会自动更新**，以 §4 的声明和探针输出为准。
+下表的计数是一次快照，与 §4 的声明同源；上游增删工具后不会自动更新，以 §4 的声明和探针输出为准。
 
 | 返回类型 | 个数 | 是哪些 |
 | --- | ---: | --- |
@@ -286,11 +286,11 @@ else log.push(`memories 返回 ${shapeOf(r.value)}，耗时 ${r.ms}ms`);
 
 > [!IMPORTANT]
 > **这些声明不产生任何运行时约束——code mode 跑的是纯 JavaScript，不是 TypeScript。** 它们只是给模型和人看的文档。
-> 所以"结构化"那 18 个同样不保证字段一定在（agent 挂了、超时了，字段照样缺）；区别只在于**前者有文档承诺，后者连文档承诺都没有**。两类都要防御，后者防御成本更高。
+> 所以"结构化"那 18 个同样不保证字段一定在（agent 挂了、超时了，字段照样缺）；区别只在于前者有文档承诺，后者连文档承诺都没有。两类都要防御，后者防御成本更高。
 
-`Promise<unknown>` 意味着**程序侧拿到的是一个没有任何形状承诺的值**：字段名只能自己试出来，上游改一次就崩。
+`Promise<unknown>` 意味着程序侧拿到的是一个没有任何形状承诺的值：字段名只能自己试出来，上游改一次就崩。
 
-**可操作的做法：对这 12 个，先 `text(JSON.stringify(result))` 打一次形状，再照着写解析。** 别凭猜测取字段——索引签名会让取错的字段安静地返回 `undefined`，而不是报错。
+**对这 12 个，先 `text(JSON.stringify(result))` 打一次形状，再照着写解析。** 别凭猜测取字段，索引签名会让取错的字段安静地返回 `undefined`，而不是报错。
 
 MCP 工具的返回被包成 `CallToolResult`：
 
@@ -362,7 +362,7 @@ declare const tools: { exec_command(args: {
 
 > [!TIP]
 > **返回的是对象，不是字符串。** 要拿命令的 stdout 得取 `.output`。
-> 另外注意它自己也有一个 `yield_time_ms`（默认 10 秒），**跑得久的命令要显式调大**，否则拿到的是被截断的中途输出加一个 `session_id`。
+> 另外注意它自己也有一个 `yield_time_ms`（默认 10 秒），跑得久的命令要显式调大，否则拿到的是被截断的中途输出加一个 `session_id`。
 
 #### `write_stdin`
 
@@ -413,7 +413,7 @@ declare const tools: { shell_command(args: {
 ```
 
 > [!TIP]
-> **`timeout_ms` 与 `exec_command` 的 `yield_time_ms` 长得像，语义相反。** 两者都默认 10000 ms，但 `yield_time_ms` 到点只是**让出**已有输出、进程继续跑（所以才回一个 `session_id`）；`timeout_ms` 到点是**杀进程**，退出码 124（`codex-rs/core/src/exec.rs:65`）。同一条 `sleep 30`，前者给你一个可续接的句柄，后者给你一个被杀的失败。
+> **`timeout_ms` 与 `exec_command` 的 `yield_time_ms` 长得像，语义相反。** 两者都默认 10000 ms，但 `yield_time_ms` 到点只是让出已有输出、进程继续跑（所以才回一个 `session_id`）；`timeout_ms` 到点是杀进程，退出码 124（`codex-rs/core/src/exec.rs:65`）。同一条 `sleep 30`，前者给你一个可续接的句柄，后者给你一个被杀的失败。
 
 #### `apply_patch`
 
@@ -424,7 +424,7 @@ declare const tools: { apply_patch(input: string): Promise<unknown>; };
 ```
 
 > [!WARNING]
-> **入参是裸字符串，不是对象**——跟这里其余所有工具的调用形式都不一样。
+> **入参是裸字符串，不是对象**，跟这里其余所有工具的调用形式都不一样。
 
 #### `view_image`
 
@@ -594,7 +594,7 @@ declare const tools: { memories__add_ad_hoc_note(args: {
 ### 子代理 v1
 
 > [!NOTE]
-> **平时不用直接碰这一组**——prelude 那一层就是为了盖住两代之间的差异。
+> **平时不用直接碰这一组**，prelude 那一层就是为了盖住两代之间的差异。
 > 列在这里是为了阅读 prelude 源码时能对上号，以及需要 prelude 没封装的能力时知道去调什么。
 
 #### `multi_agent_v1__spawn_agent`
@@ -637,7 +637,7 @@ declare const tools: { multi_agent_v1__spawn_agent(args: {
 }>; };
 ```
 
-> **没有 `system_prompt` 这一项**——子 agent 的系统提示词设不了，`message` 是程序唯一的控制面。
+> **没有 `system_prompt` 这一项。** 子 agent 的系统提示词设不了，`message` 是程序唯一的控制面。
 
 #### `multi_agent_v1__wait_agent`
 
@@ -658,7 +658,7 @@ declare const tools: { multi_agent_v1__wait_agent(args: {
 ```
 
 > [!WARNING]
-> **一次等多个是陷阱**——它会反复返回最先完成的那个。所以收 N 个结果需要 N 次单目标等待，
+> **一次等多个是陷阱**：它会反复返回最先完成的那个。所以收 N 个结果需要 N 次单目标等待，
 > 这正是 `collectAll` 在 v1 分支写成串行 for 循环的原因。
 
 #### `multi_agent_v1__send_input`
@@ -743,11 +743,11 @@ declare const tools: { collaboration__spawn_agent(args: {
 
 > [!CAUTION]
 > **返回的 `task_name` 已经是全限定路径**（形如 `/root/scan_0`）。
-> 如果按直觉再拼一次前缀去和 `list_agents` 比对，**结果是全部 agent 完成、一个都收不到，
-> 而且不报任何错**——只是超时后返回一堆 `null`。
+> 如果按直觉再拼一次前缀去和 `list_agents` 比对，结果是全部 agent 完成、一个都收不到，
+> 而且不报任何错，只是超时后返回一堆 `null`。
 > 这也是 `collectAll` 的 v2 分支用 `endsWith` 匹配的原因。
 >
-> 另外注意这里的参数结构会**拒绝未知字段**：自作主张塞一个不存在的参数会直接抛异常。
+> 另外注意这里的参数结构会拒绝未知字段：自作主张塞一个不存在的参数会直接抛异常。
 
 #### `collaboration__wait_agent`
 

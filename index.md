@@ -5,11 +5,11 @@ description: 用普通 JavaScript 程序去驱动一批 AI agent —— 机制�
 
 # PoA 开发文档
 
-**PoA（Program of Agent）是 brainary 提供的一条通道：用普通 JavaScript 驱动一批 AI agent——由程序调度 AI，而不是由 AI 调度工具。**
+PoA（Program of Agent）是 brainary 提供的一条通道：用普通 JavaScript 驱动一批 AI agent，由程序调度 AI，而不是由 AI 调度工具。
 
-通常的 agent 系统里，模型是决策者：它决定下一步调哪个工具、读哪个文件、什么时候收手。PoA 把这个关系倒过来——**调度、分发、汇总、判定全部写在程序代码里**，模型退到每个子 agent 内部，只负责那些"必须读懂内容才能回答"的部分。
+通常的 agent 系统里，模型是决策者，它决定下一步调哪个工具、读哪个文件、什么时候收手。PoA 把这个关系倒过来：调度、分发、汇总、判定全部写在程序代码里，模型退到每个子 agent 内部，只负责那些必须读懂内容才能回答的部分。
 
-于是编排逻辑变成确定的：`for` 就是循环，`Promise.all` 就是并发，`if` 就是分支。这段编排**不消耗任何模型调用，每次运行行为一致**。
+于是编排逻辑变成确定的：`for` 就是循环，`Promise.all` 就是并发，`if` 就是分支。这段编排不消耗任何模型调用，每次运行行为一致。
 
 ```js
 // 一个完整的 PoA 程序：列出目录 → 每个派一个 agent → 收齐 → 汇总
@@ -37,7 +37,7 @@ text(JSON.stringify(batch.map(({ handle, reply }) => ({
 | 初次接触 PoA，需要了解它解决什么问题 | [概览](./01-overview.md) → [快速开始](./02-quickstart.md) |
 | 环境已就绪，需要马上跑通 | [快速开始](./02-quickstart.md) |
 | 要动手写一个新程序 | [编写指南](./05-writing.md)，遇到具体形状去 [模式库](./06-patterns.md) |
-| 要把程序**打成包交给别人跑**（含自带 MCP） | [核心概念 §9](./03-concepts.md#9-poa-包自带能力的那条路) → [编写指南 §13](./05-writing.md#13-从-js-到-poa要改的五件事) |
+| 要把程序打成包交给别人跑（含自带 MCP） | [核心概念 §9](./03-concepts.md#9-poa-包自带能力的那条路) → [编写指南 §13](./05-writing.md#13-从-js-到-poa要改的五件事) |
 | 查某个函数收什么参数 | [API 参考](./07-api-reference.md) |
 | 程序行为不符合预期 | [故障排查](./09-troubleshooting.md) |
 | 判断某件事能不能做 | [边界与限制](./08-limits.md) |
@@ -50,13 +50,13 @@ text(JSON.stringify(batch.map(({ handle, reply }) => ({
 | --- | --- | --- |
 | 01 | [概览](./01-overview.md) | PoA 是什么、解决什么问题、brainary 把它接在 codex 的哪一层、什么时候该用与不该用 |
 | 02 | [快速开始](./02-quickstart.md) | 环境准备 → 探针 → 跑通第一个程序 → 写出自己的第一个 |
-| 03 | [核心概念](./03-concepts.md) | 三个角色、cell、沙箱面、prelude 与内置的分界、两代后端、**`.poa` 包与自带 MCP** |
+| 03 | [核心概念](./03-concepts.md) | 三个角色、cell、沙箱面、prelude 与内置的分界、两代后端、`.poa` 包与自带 MCP |
 | 04 | [工作原理](./04-how-it-works.md) | code mode 是什么、`tools.foo()` 发生了什么、为什么并发不等于流式 |
-| 05 | [编写指南](./05-writing.md) | **主体文档。** 从空文件到能跑的完整动线，含四处必写的容错与调试习惯、**打成 `.poa` 包时要改的五件事** |
+| 05 | [编写指南](./05-writing.md) | 主体文档。从空文件到能跑的完整动线，含四处必写的容错与调试习惯、打成 `.poa` 包时要改的五件事 |
 | 06 | [模式库](./06-patterns.md) | 四种可复用形状 + 一个负结果 + 八条反模式 + 五个能力样本 demo |
 | 07 | [API 参考](./07-api-reference.md) | 12 个全局 primitive、16 个 prelude primitive、32 个内置工具的完整声明 |
 | 08 | [边界与限制](./08-limits.md) | 硬边界清单，以及每一条在写代码时的具体样子 |
-| 09 | [故障排查](./09-troubleshooting.md) | 症状 → 原因 → 处置；两个**不报错**的坑单独标出 |
+| 09 | [故障排查](./09-troubleshooting.md) | 症状 → 原因 → 处置；两个不报错的坑单独标出 |
 
 ---
 
@@ -66,13 +66,13 @@ text(JSON.stringify(batch.map(({ handle, reply }) => ({
 
 | 术语 | 含义 |
 | --- | --- |
-| **brainary** | 本项目。它建在 codex 之上：**codex 提供** V8 沙箱、工具面与子 agent；**brainary 提供** PoA 这条通道——让模型以外的东西也能提交那段 JS，以及 `.poa` 包格式与包自带 MCP |
-| **codex** | brainary 所基于的那套 agent 运行时。文中凡是说"codex 内置""codex 的某某"，指的都是这一层**已有**的东西，不是 brainary 加的 |
+| **brainary** | 本项目。它建在 codex 之上：codex 提供 V8 沙箱、工具面与子 agent，brainary 提供 PoA 这条通道，让模型以外的东西也能提交那段 JS，以及 `.poa` 包格式与包自带 MCP |
+| **codex** | brainary 所基于的那套 agent 运行时。文中凡是说"codex 内置""codex 的某某"，指的都是这一层已有的东西，不是 brainary 加的 |
 | **PoA** | Program of Agent，"驱动 agent 的程序"。既指开发者编写的那段 JavaScript，也指这整条通道 |
-| **`.poa` 包** | brainary 定义的分发形态：一个 zip，根上放 `manifest.toml`，里面是程序本体和它**自带的 MCP server**。提交接口只收这一种形状——只持有一段 JS 时，同样封装成一个"申报零能力"的包 |
-| **manifest** | 包里的 `manifest.toml`：`[poa]` 元数据 + `[[capabilities.mcp]]` 能力申报。**申报了的 server 起不来就拒跑** |
+| **`.poa` 包** | brainary 定义的分发形态：一个 zip，根上放 `manifest.toml`，里面是程序本体和它自带的 MCP server。提交接口只收这一种形状，只持有一段 JS 时同样封装成一个"申报零能力"的包 |
+| **manifest** | 包里的 `manifest.toml`：`[poa]` 元数据 + `[[capabilities.mcp]]` 能力申报。申报了的 server 起不来就拒跑 |
 | **cell** | 一次提交的那整段 JS 的一次运行。一次提交 = 一个 cell = 一次跑完 |
-| **code mode** | **codex 已有的**一种工具投送方式：所有工具挂在 JS 全局对象 `tools` 上，由沙箱里的 JS 调用。PoA 借的就是这条路 |
+| **code mode** | codex 已有的一种工具投送方式：所有工具挂在 JS 全局对象 `tools` 上，由沙箱里的 JS 调用。PoA 借的就是这条路 |
 | **子 agent** | 被 PoA 程序派出去的独立 AI 会话，有自己的上下文和工具 |
 | **handle** | 派出一个子 agent 后拿到的句柄，后续等待、追问、关闭都靠它 |
 | **并行派发**（扇出 / fan-out） | 一次派出 N 个子 agent 并行干活的形状 |
@@ -85,12 +85,12 @@ text(JSON.stringify(batch.map(({ handle, reply }) => ({
 
 ## 两条最容易踩的线
 
-这两条在正文里各有详述，但值得提前知道，因为它们**都不报错**：
+这两条正文里各有详述，但值得提前知道，因为它们都不报错：
 
 > [!WARNING]
 > **① 忘了 `await` 的 promise 会被静默丢弃。** 程序求值一结束沙箱就没了，没等的活直接消失，不报错、不警告，只是那部分工作没有发生。
 >
-> **② shell 的报错信息和正常输出走同一个通道。** 不过滤的话，`No such file or directory` 会被当成数据喂给子 agent，而 **agent 会认认真真地去分析它**，最终产出一份看起来很正常的错误结论。
+> **② shell 的报错信息和正常输出走同一个通道。** 不过滤的话，`No such file or directory` 会被当成数据喂给子 agent，而子 agent 会照着它认真分析一通，最终产出一份看起来很正常的错误结论。
 
 ---
 
@@ -100,18 +100,18 @@ text(JSON.stringify(batch.map(({ handle, reply }) => ({
 
 **不覆盖**：codex 内核如何实现这条通道（合成工具调用、Rust 侧的分发链路）、code mode 沙箱本身的实现、子 agent 内部的模型行为。
 
-**全文描述的是 brainary `main` 分支 `56a8b1307`（2026-08-20）时的实现。** 代码与文档之间只有这一个锚点，读到与实际行为不符的地方，以代码为准。
+全文描述的是 brainary `main` 分支 `56a8b1307`（2026-08-20）时的实现。代码与文档之间只有这一个锚点，读到与实际行为不符的地方，以代码为准。
 
 ---
 
 ## 怎么读这份文档
 
-全文混排着两类内容，**它们的稳定性完全不同**，读之前先分清：
+全文混排着两类内容，稳定性完全不同，读之前先分清：
 
 | | 是什么 | 变了意味着什么 | 怎么标记 |
 | --- | --- | --- | --- |
 | **契约** | 接口与格式：`manifest.toml` 的字段、`{ threadId, package }`、尺寸上限、`0644`、拒跑判据、审批与并行的判定顺序 | 那是一次 breaking change | 不标记，默认即是 |
 | **快照** | 某一次实测的结果：工具数量、profile 表、曝光度档位、并发名额、prelude 的函数名单 | 什么都没变，只是换了一套模型 / provider / 配置 | 就近标出 **⚠ 快照** |
 
-> **照着"快照"写死代码，赔的是自己。** 那类表存在的意义是让人知道"大概会看到什么形状"，
-> 而"现在实际有什么"只有[探针](./02-quickstart.md#1-第一步跑探针)答得了——换模型、换 provider、换 profile 之后都要重跑。
+> 别照着"快照"写死代码。那类表只说明大概会看到什么形状，
+> 现在实际有什么只有[探针](./02-quickstart.md#1-第一步跑探针)答得了，换模型、换 provider、换 profile 之后都要重跑。
