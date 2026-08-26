@@ -300,21 +300,35 @@ description = "..."               # 可选
 
 **两条路解包的地方不一样**，排障时要分清：
 
-```
-① codex exec --poa <目录|.poa>          ② 自研客户端（如 run_workflow.py）
-   ├─ 目录现打包 / .poa 直接读              ├─ 自己造包（现成 JS 就包成零能力包）
-   ├─ 校验 manifest + 解包到临时目录        └─ base64 → JSON-RPC
-   │    ← 坏包在这里就是 exit(2)，                  { threadId, package }
-   │      一个会话都不会起                              ↓
-   └─ 进程内直接把 PoaPackage 传给                codex app-server
-      app-server（同进程，不过 JSON）             ├─ 解 base64、校验、解包
-                    ↓                            └──────────┬─────────
-              （两路在此汇合）                               │
-                    ↓                                       │
-       ├─ 每条 [[capabilities.mcp]] 注册成 thread 级 MCP server（cwd = 包根）
-       ├─ 等这些 server 全部就位，再捕获工具面   ← 顺序是关键，见下
-       ├─ 任何一个没在工具面上留下工具 → 拒跑
-       └─ 把 entry 的内容当源码送进 V8
+```mermaid
+graph TD
+    subgraph P1["① codex exec --poa（目录或 .poa）"]
+      A1["目录现打包 / .poa 直接读"] --> A2["校验 manifest + 解包到临时目录"]
+      A2 --> A3["进程内把 PoaPackage 交给 app-server<br/>同进程，不过 JSON"]
+    end
+
+    subgraph P2["② 自研客户端（如 run_workflow.py）"]
+      B1["自己造包<br/>现成 JS 就包成零能力包"] --> B2["base64 → JSON-RPC<br/>threadId + package"]
+      B2 --> B3["codex app-server<br/>解 base64、校验、解包"]
+    end
+
+    A2 -.->|"坏包在这里就是 exit(2)"| BAD(["一个会话都不会起"])
+
+    A3 --> M(["两路在此汇合"])
+    B3 --> M
+
+    M --> S1["manifest 里申报的每个 server<br/>注册成 thread 级 MCP server（cwd = 包根）"]
+    S1 -->|"顺序不能反，见下方 ③"| S2["等这些 server 全部就位<br/>再捕获工具面"]
+    S2 --> S3{"每个申报的 server<br/>都在工具面上留下工具了吗"}
+    S3 -->|"否"| REFUSE(["拒跑"])
+    S3 -->|"是"| S4["把 entry 的内容当源码送进 V8"]
+
+    style A3 fill:#d5e8d4,stroke:#82b366
+    style B3 fill:#dae8fc,stroke:#6c8ebf
+    style M fill:#f5f5f5,stroke:#666666
+    style S4 fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    style BAD fill:#f8cecc,stroke:#b85450
+    style REFUSE fill:#f8cecc,stroke:#b85450
 ```
 
 四件必须知道的事：
