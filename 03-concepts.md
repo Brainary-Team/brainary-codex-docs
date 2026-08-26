@@ -308,7 +308,7 @@ graph TD
     end
 
     subgraph P2["② 自研客户端（如 run_workflow.py）"]
-      B1["自己造包<br/>现成 JS 就包成零能力包"] --> B2["base64 → JSON-RPC<br/>threadId + package"]
+      B1["自己造包<br/>现成 JS 就包成零能力包"] --> B2["base64 → JSON-RPC<br/>{ threadId, package }"]
       B2 --> B3["codex app-server<br/>解 base64、校验、解包"]
     end
 
@@ -317,7 +317,7 @@ graph TD
     A3 --> M(["两路在此汇合"])
     B3 --> M
 
-    M --> S1["manifest 里申报的每个 server<br/>注册成 thread 级 MCP server（cwd = 包根）"]
+    M --> S1["每条 [[capabilities.mcp]] 注册成<br/>thread 级 MCP server（cwd = 包根）"]
     S1 -->|"顺序不能反，见下方 ③"| S2["等这些 server 全部就位<br/>再捕获工具面"]
     S2 --> S3{"每个申报的 server<br/>都在工具面上留下工具了吗"}
     S3 -->|"否"| REFUSE(["拒跑"])
