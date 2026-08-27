@@ -40,7 +40,7 @@ description: 环境准备 → 探针 → 跑通第一个程序 → 写出自己�
 在仓库根建一个 `.env`（已被 gitignore），照 `.env.example` 填：
 
 ```bash
-OPENAI_API_URL=https://your-provider/v1     # 必须支持 Responses API
+OPENAI_API_URL=https://your-provider/v1     # 默认走 Responses API；Anthropic 端点见 0.3
 OPENAI_API_KEY=sk-...
 OPENAI_API_MODEL=gpt-5.6-luna
 
@@ -57,6 +57,46 @@ CODEX_BIN=/absolute/path/to/codex-rs/target/debug/codex
 
 > [!NOTE]
 > `.env` 是被 `set -a; . .env` **当 shell 脚本 source** 的，不是按 properties 文件解析。所以 `=` 两边不能有空格，含空格或 `#` 的值要加引号。另外它会**覆盖**命令行里导出的同名变量，`VAR=x ./run.sh ...` 这种临时覆盖是无效的。
+
+### 0.3 换用 Anthropic 协议（可选）
+
+除 Responses 外，codex 也支持 **Anthropic 兼容端点**（`/v1/messages`）。在 `.env` 里多加一行即可：
+
+```bash
+OPENAI_API_URL=https://api.moonshot.cn/anthropic/v1
+OPENAI_API_KEY=sk-...
+OPENAI_API_MODEL=kimi-k3
+WIRE_API=anthropic          # 不写则为 responses
+```
+
+意义在于覆盖面：**Moonshot、DeepSeek 都不提供 `/v1/responses`**，此前完全接不进来。换端点只改前三行：
+
+| Provider | `OPENAI_API_URL` | 模型 |
+|---|---|---|
+| Anthropic | `https://api.anthropic.com/v1` | `claude-opus-5` |
+| Moonshot | `https://api.moonshot.cn/anthropic/v1` | `kimi-k3` |
+| DeepSeek | `https://api.deepseek.com/anthropic/v1` | `deepseek-v4-pro` |
+
+`WIRE_API` 只接受 `responses`（默认）和 `anthropic`，写错会被 `run.sh` 直接拒掉并列出合法值。
+
+> [!CAUTION]
+> **URL 必须带 `/v1`。** codex 拼接的是 `{base_url}/messages`，而 Moonshot 和 DeepSeek 文档给出的 Anthropic base 是 `.../anthropic`，**少一段**，会 404 在 `/anthropic/messages`。报错里会打印实际请求的完整 URL，那是最快的判断依据。
+
+> [!NOTE]
+> 不经 `run.sh` 直接用 codex 时，同样的配置写在 `CODEX_HOME/config.toml` 的 `[model_providers.X]` 下，键名是 `wire_api`。`run.sh` 做的就是把 `.env` 填进 `workflow-demos/config/` 里的 profile 模板。
+
+> [!NOTE]
+> `model_reasoning_effort` 与 `model_reasoning_summary` 对 Anthropic provider **无效**——extended thinking 参数尚未接入。状态卡因此不显示这两项，**是正确行为而不是缺陷**：显示一个不起作用的设置比不显示更容易误导。
+> 完整的协议差异、转译规则与已知缺口见 `codex-rs/docs/anthropic_wire_api.md`。
+
+换一个没测过的端点之前，建议先跑一次兼容性探针。「Anthropic 兼容」是厂商的一句声明，而有四件事能把移植弄砸、基础对话一件都测不到：模型是发出结构化 `tool_use` 还是用散文描述调用、freeform 能否扛住 JSON 包装、thinking 回不回 signature、多轮工具结果配不配得上。
+
+```bash
+ANTHROPIC_PROBE_KEY=<key> python3 scripts/probe_anthropic_compat.py <url> <model>
+```
+
+> [!WARNING]
+> 这几种失败方式产出的是**看起来正常的输出**，不是报错——实测中 DeepSeek 的 freeform 就没通过（要它写带模板字符串和正则的代码，三次都只回 6-8 行的 stub）。
 
 ---
 
