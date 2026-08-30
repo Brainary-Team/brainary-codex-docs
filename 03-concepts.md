@@ -1,13 +1,4 @@
----
-title: 核心概念
-description: 三个角色、cell、沙箱面、prelude 与内置的分界、两代后端、`.poa` 包与自带 MCP
----
-
 # 核心概念
-
-[← 快速开始](./02-quickstart.md) · [返回目录](./index.md) · 下一篇：[工作原理](./04-how-it-works.md)
-
----
 
 ## 1. 三个角色
 
@@ -51,7 +42,7 @@ graph TD
 | cell 中途没有办法交出部分结果再继续 | 长任务只能靠把超时调大硬扛，不能靠分段 |
 | cell 跑起来之后无法从外部中止 | 跑飞了只能杀进程 |
 
-后三条的完整说明见[边界与限制](./08-limits.md)。
+后三条的完整说明见边界与限制。
 
 ---
 
@@ -82,7 +73,7 @@ graph TD
 
 `Date.now()` 是有的，所以要时间戳不必额外开工具。同时也意味着同一段程序重跑两次结果可能不同。
 
-各 primitive 的完整语义见 [API 参考 §1](./07-api-reference.md#1-全局-primitive12-个)。
+各 primitive 的完整语义见 API 参考 §1。
 
 > [!IMPORTANT]
 > **JS 本身没有网络和文件系统，但 `tools.exec_command` 提供了一个真 shell。**
@@ -114,7 +105,7 @@ graph TD
 > [!CAUTION]
 > **写成 `.poa` 包时，prelude 不会被拼进去。** 包的 `entry` 是原样提交的，这是格式的定义，不是配置。
 > 于是上表第一行那 16 个名字全部不存在，`runBatch is not defined` 是包作者最常见的第一个报错。
-> 要用就把 `prelude.js` 抄进包里，抄在首行 pragma 之后——第 1 行永远留给 `// @exec:`，否则会踩[另一个坑](./05-writing.md#1-首行-pragma)。或者干脆只用内置那一档。详见 [§9](#9-poa-包自带能力的那条路)。
+> 要用就把 `prelude.js` 抄进包里，抄在首行 pragma 之后——第 1 行永远留给 `// @exec:`，否则会踩另一个坑。或者干脆只用内置那一档。详见 [§9](#9-poa-包自带能力的那条路)。
 
 ### prelude 为什么存在
 
@@ -205,7 +196,7 @@ CODEX_DEMO_SANDBOX=workspace-write ./run.sh demos/08_file_and_image.js full
 | **递归深度刹车** | 有，且拦两道，子 agent 天然派不出孙 agent | 没有，无条件放行。刹车只能在 JS 里自己踩 |
 | **`closeAll` 有没有用** | 有效，且必须调（已完成的 agent 仍占名额） | 空操作，因为 v2 那组工具里根本没有"关闭" |
 
-第二条是实打实的风险，详见[编写指南 §6.4](./05-writing.md#64-递归深度v2-下没有刹车)。
+第二条是实打实的风险，详见编写指南 §6.4。
 
 ---
 
@@ -246,7 +237,7 @@ graph LR
 当前这条通道上没有任何人工介入点，有两个并列的原因：
 
 - 服务端发回来的请求由客户端代答，不经过人。`runner/rpc_client.py` 对 elicitation 分两种答法：codex 借 elicitation 发来的**工具审批**（`_meta` 里带 `codex_approval_kind`）一律 `accept`，理由是能力已经在 manifest 里申报过，这里放行是照申报办事，不是无差别点头；而**真正来自 MCP server 的提问**一律 `decline`，因为这条链路上没有人能答。其余方法的反向请求则统一回一个默认的"已批准"。配合 profile 里的"从不询问"审批策略，整条链路上不存在任何人工介入点
-- 程序没有跟人对话的手段，那个能问用户问题的内置工具只给模型，程序调不到，[三道门](./08-limits.md#3-无人值守)每一道单独就够挡死
+- 程序没有跟人对话的手段，那个能问用户问题的内置工具只给模型，程序调不到，三道门每一道单独就够挡死
 
 于是任何一次阻塞询问都会把整条链路挂死，PoA 程序必须能在没有人的情况下从头跑到尾。需要人判断的地方，只能把判断也写成代码（比如数票），或者把问题留到最后输出里。
 
@@ -258,7 +249,7 @@ graph LR
 
 ## 9. PoA 包：自带能力的那条路
 
-> 程序可以像一个安装包那样，把自己要用的 MCP server 带在身上。能力申报写在包的 `manifest.toml` 里，服务端解包后按 thread 把它们起起来，不需要事先在宿主的 `config.toml` 里配好。能自带到什么程度，见[边界与限制 §6](./08-limits.md#6-自带能力只到-stdio-mcp)。
+> 程序可以像一个安装包那样，把自己要用的 MCP server 带在身上。能力申报写在包的 `manifest.toml` 里，服务端解包后按 thread 把它们起起来，不需要事先在宿主的 `config.toml` 里配好。能自带到什么程度，见边界与限制 §6。
 
 ### 一个包长什么样
 
@@ -342,7 +333,7 @@ graph TD
 
 ### 两个一定会踩的坑
 
-**① 工具名不能硬编码。** `mcp__echo__echo` 是当前配置下的产物，前缀取决于 `prefix_mcp_tool_names()`，命名空间会被清洗、重名时还会加哈希后缀。正确写法是从 `ALL_TOOLS` 里按后缀找并断言唯一，完整写法与理由见 [API 参考 §3.1](./07-api-reference.md#31-速查表)。
+**① 工具名不能硬编码。** `mcp__echo__echo` 是当前配置下的产物，前缀取决于 `prefix_mcp_tool_names()`，命名空间会被清洗、重名时还会加哈希后缀。正确写法是从 `ALL_TOOLS` 里按后缀找并断言唯一，完整写法与理由见 API 参考 §3.1。
 
 **② 工具必须标注，否则会被审批拦下。** 默认 `auto` 审批模式下，codex 对一个没有标注的 MCP 工具的假设是"它可能写、可能联网"，于是发起一次 elicitation，而这条链路上[没有人](#8-全程无人值守)。
 
@@ -357,7 +348,7 @@ annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false 
 >
 > 整个 server 照抄 `workflow-demos/poas/00_echo/mcp/echo.mjs` 即可：零依赖、手写 stdio JSON-RPC、注释里就写着每个标注为什么要在。
 
-标注的顺带好处：只读同时也是[并行安全的判据](./04-how-it-works.md#哪些工具是并行安全的)，所以包自带的只读 server 是可以真并行的（`ext/poa` 建的 config 里 `supports_parallel_tool_calls` 硬编码为 `false`，服务器级的整体豁免用不了，只能逐个工具标只读）。
+标注的顺带好处：只读同时也是并行安全的判据，所以包自带的只读 server 是可以真并行的（`ext/poa` 建的 config 里 `supports_parallel_tool_calls` 硬编码为 `false`，服务器级的整体豁免用不了，只能逐个工具标只读）。
 
 > [!CAUTION]
 > **不标注的后果按 `approval_policy` 分叉，其中一支是不可恢复的挂死。**
@@ -408,6 +399,3 @@ poas/build.sh   poas/00_echo             # → ./00_echo.poa（脚本在 poas/ �
 
 代码位置：格式与校验在 `codex-rs/poa/`，起 server 在 `codex-rs/ext/poa/`。
 
----
-
-[← 快速开始](./02-quickstart.md) · [返回目录](./index.md) · 下一篇：[工作原理](./04-how-it-works.md)

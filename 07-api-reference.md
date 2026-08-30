@@ -1,11 +1,4 @@
----
-title: API 参考
-description: 12 个全局 primitive、16 个 prelude primitive、32 个内置工具的完整声明
----
-
 # API 参考
-
-[← 模式库](./06-patterns.md) · [返回目录](./index.md) · 下一篇：[边界与限制](./08-limits.md)
 
 这一篇是查询用的参考表，不必顺序读完。
 
@@ -54,7 +47,7 @@ description: 12 个全局 primitive、16 个 prelude primitive、32 个内置工
 > **⚠ 快照，不是契约。** 这一整节描述的是 `workflow-demos/lib/prelude.js`（243 行）这一层本仓自备的封装，既不是 codex 内置的，也不是 brainary 的接口契约。换一个不拼 prelude 的客户端，下面这 16 个名字全都不存在。
 
 > [!CAUTION]
-> **写 `.poa` 包时这一整节都不适用。** 包的 `entry` 原样提交，不拼 prelude，这 16 个名字一个都没有。见[编写指南 §13](./05-writing.md#13-从-js-到-poa要改的五件事)。
+> **写 `.poa` 包时这一整节都不适用。** 包的 `entry` 原样提交，不拼 prelude，这 16 个名字一个都没有。见编写指南 §13。
 
 ### 2.1 派 agent / 收结果
 
@@ -80,7 +73,7 @@ description: 12 个全局 primitive、16 个 prelude primitive、32 个内置工
 > **`parseJsonReply` 的贪婪匹配有一个高频触发场景。**
 > 它用的是 `/\{[\s\S]*\}/`，从第一个 `{` 一路吃到最后一个 `}`。
 >
-> 而[编写指南 §5](./05-writing.md#5-写子-agent-的任务文字) 推荐的 prompt 模板里本身就带一段 `{...}` 格式示例。
+> 而编写指南 §5 推荐的 prompt 模板里本身就带一段 `{...}` 格式示例。
 > agent 只要在正式答案前把那段模板复述一遍，两段 `{}` 就被连成一整块 → `JSON.parse` 抛错、
 > `value` 为 `null`，而不是退回前面那一段。
 >
@@ -113,7 +106,7 @@ else log.push(`memories 返回 ${shapeOf(r.value)}，耗时 ${r.ms}ms`);
 ```
 
 > [!TIP]
-> **包自带的工具不用走这一组。** 申报了的 MCP server 起不来会直接[拒跑](./03-concepts.md#9-poa-包自带能力的那条路)，所以它出现在 `ALL_TOOLS` 里就一定能调。需要探测的是宿主侧那些。
+> **包自带的工具不用走这一组。** 申报了的 MCP server 起不来会直接拒跑，所以它出现在 `ALL_TOOLS` 里就一定能调。需要探测的是宿主侧那些。
 
 ---
 
@@ -221,7 +214,7 @@ else log.push(`memories 返回 ${shapeOf(r.value)}，耗时 ${r.ms}ms`);
 | [`mcp__probe__echo`](#mcp__probe__echo) | 示例：**有** `outputSchema` 时的渲染结果 | 探针 | 有条件 |
 | [`mcp__probe__no_output_schema`](#mcp__probe__no_output_schema) | 示例：**没有** `outputSchema` 时的渲染结果 | 探针 | 有条件 |
 
-> 除这 3 个 resource 工具外，每个 MCP server 的每个工具还会各渲染出一个 `mcp__<server>__<tool>`，数量取决于挂载了哪些 server——**包括[包自带的那些](./03-concepts.md#9-poa-包自带能力的那条路)**。
+> 除这 3 个 resource 工具外，每个 MCP server 的每个工具还会各渲染出一个 `mcp__<server>__<tool>`，数量取决于挂载了哪些 server——**包括包自带的那些**。
 
 > [!CAUTION]
 > **`mcp__<server>__<tool>` 这个形状不是契约，别硬编码。** 前缀取决于 `prefix_mcp_tool_names()`，命名空间会被清洗，**重名时还会加哈希后缀**。正确写法是从 `ALL_TOOLS` 里按后缀匹配，并断言只命中一个：
@@ -895,6 +888,3 @@ declare const tools: { mcp__probe__echo(args: {
 declare const tools: { mcp__probe__no_output_schema(args: { q: string; }): Promise<CallToolResult>; };
 ```
 
----
-
-[← 模式库](./06-patterns.md) · [返回目录](./index.md) · 下一篇：[边界与限制](./08-limits.md)

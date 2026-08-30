@@ -1,11 +1,4 @@
----
-title: 模式库
-description: 四种可复用形状 + 一个负结果 + 八条反模式 + 五个能力样本 demo
----
-
 # 模式库
-
-[← 编写指南](./05-writing.md) · [返回目录](./index.md) · 下一篇：[API 参考](./07-api-reference.md)
 
 这四种形状覆盖了绝大多数 PoA 程序。它们是一条递进链，不是四个平行样例：
 
@@ -28,7 +21,7 @@ graph TD
 
 ③ 是这条链上最有价值的一种，⑤ 记录的是同一条链够不到的地方。
 
-每种模式在 `workflow-demos/demos/` 下都有一个可运行的实现，跑法见[快速开始 §2](./02-quickstart.md#2-第二步跑一个现成的程序)。
+每种模式在 `workflow-demos/demos/` 下都有一个可运行的实现，跑法见快速开始 §2。
 
 ---
 
@@ -204,7 +197,7 @@ const builtOnOwnAnswer = Boolean(
 
 收口写法本身是正确的：每个 agent 一个在途 wait，`Promise.race` 取最先落地的，删掉它再 race 剩下的。
 
-但它不会按预期工作。机制见[工作原理 §4](./04-how-it-works.md#4-并发不等于流式)：程序侧的等待调用是串行的，第一个 wait 独占 12 秒，期间另外两个发不出去。
+但它不会按预期工作。机制见工作原理 §4：程序侧的等待调用是串行的，第一个 wait 独占 12 秒，期间另外两个发不出去。
 
 到达顺序 = 启动顺序。
 
@@ -266,8 +259,5 @@ matches_duration_order: ...  // 到达顺序 = 耗时顺序？ 预期 false
 | `09_memory_clock_goal.js` | 带状态的工具怎么探；以及给可能阻塞的工具套超时的写法 |
 | `10_agent_lifecycle.js` | prelude 盖住的那层原始工具长什么样，两代后端各跑一遍 |
 
-它们一个 agent 都不派（除了 10），零模型调用，可以随便重跑。写法上要抄的是 `callTool` / `shapeOf` 这一组[能力探测 primitive](./07-api-reference.md#24-能力探测)的用法：**"这套配置下没有" 是正常结果，不是 bug。**
+它们一个 agent 都不派（除了 10），零模型调用，可以随便重跑。写法上要抄的是 `callTool` / `shapeOf` 这一组能力探测 primitive 的用法：**"这套配置下没有" 是正常结果，不是 bug。**
 
----
-
-[← 编写指南](./05-writing.md) · [返回目录](./index.md) · 下一篇：[API 参考](./07-api-reference.md)

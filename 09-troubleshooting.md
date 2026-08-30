@@ -1,11 +1,4 @@
----
-title: 故障排查
-description: 症状 → 原因 → 处置；两个不报错的坑单独标出
----
-
 # 故障排查
-
-[← 边界与限制](./08-limits.md) · [返回目录](./index.md)
 
 这一篇按可观察到的现象排列，遇到问题从这儿查。
 
@@ -62,7 +55,7 @@ description: 症状 → 原因 → 处置；两个不报错的坑单独标出
 | 命令行前缀 `VAR=x ./run.sh ...` 不起作用 | `.env` 是无条件赋值，会覆盖已导出的同名变量 | 改 `.env`，或把那一行注释掉 |
 | 结果里少了一部分，也没报错 | 见 [§0 ②](#0-先看这两个它们不报错) | 检查 `await` |
 | `refusing to run: required MCP server(s) unavailable: X` | 包申报的 server 没起来，或起来了但一个工具都没报 | 先手动跑一遍 `shell` 那条命令行；注意解出来的文件权限固定 `0644`，命令行必须自带解释器 |
-| 包跑起来报 `runBatch is not defined` | 包的 `entry` 是原样提交的，不拼 prelude | 把 prelude 抄进包里，见[编写指南 §13](./05-writing.md#13-从-js-到-poa要改的五件事) |
+| 包跑起来报 `runBatch is not defined` | 包的 `entry` 是原样提交的，不拼 prelude | 把 prelude 抄进包里，见编写指南 §13 |
 | 包里的工具调用报 `tools.mcp__x__y is not a function` | 工具名被硬编码了；前缀会被清洗、重名时加哈希后缀 | 从 `ALL_TOOLS` 按后缀匹配 + 断言只命中一个 |
 | 包内某个工具调用被拒，但工具明明在 `ALL_TOOLS` 里 | 那个工具没标注 → 需要审批 → 而四个 profile 都是 `approval_policy = "never"`，于是毫秒级自动 decline。客户端全程收不到请求，看起来像"人拒绝了"，其实人没被问 | 先用 `CODEX_RPC_DEBUG=1` 确认客户端确实一条请求都没收到（见 [§6 ③](#6-诊断动作清单)），坐实是"没被问"而不是"被拒了"；然后在 server 的 `tools/list` 里给每个工具写 `annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }`，三个都写 |
 | **跑包时整条命令卡死，`yield_time_ms` 也不救**（issue #32） | 同样是工具没标注，但 `approval_policy` 不是 `never`。审批回执登记在 `active_turn` 上，而 cell 从不建 `active_turn` → 客户端答了也没用，答案被 core 丢弃，`rx_response` 永不返回 | 只能杀进程。根治见 issue #32；包作者侧的唯一解是把标注补齐，它同时买到"躲开这个死锁"和"并行安全"两件事 |
@@ -203,8 +196,5 @@ try {
 2. **没有取消**：跑飞了只能杀进程
 3. **无人值守**：程序中途没法向人提问
 
-完整说明见[边界与限制](./08-limits.md)。
+完整说明见边界与限制。
 
----
-
-[← 边界与限制](./08-limits.md) · [返回目录](./index.md)
