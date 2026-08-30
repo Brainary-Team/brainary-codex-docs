@@ -15,15 +15,15 @@
 
 | 二进制 | 命令 | 额外前提 |
 |---|---|---|
-| `codex` | `cargo build -p codex-cli --bin codex` | 无。`codex-rs/cli/Cargo.toml` 里没有 code-mode 依赖，常规构建即可 |
+| `codex` | `cargo build -p codex-cli --bin codex` | 无。它不依赖 code mode，常规构建即可 |
 | `codex-code-mode-host` | `cargo build -p codex-code-mode-host` | 要一份开启 sandbox 特性的预编译 V8 |
 
-卡点全在第二个。它依赖 `codex-code-mode-runtime`，后者声明 `v8 = { features = ["v8_enable_sandbox"] }`（`codex-rs/code-mode-runtime/Cargo.toml:24`）；而 v8 crate 的 `build.rs` 默认从 denoland 拉预编译包，本 workspace 需要的 `ptrcomp_sandbox_release` profile 只发布在 openai/codex 的 release 上，那是 code mode 迁到独立沙箱宿主进程之后才有的产物。
+卡点全在第二个。它要的是一份开启了 `v8_enable_sandbox` 特性的 v8；而 v8 crate 默认从 denoland 拉预编译包，本 workspace 需要的 `ptrcomp_sandbox_release` profile 只发布在 openai/codex 的 release 上。
 
 做法是先手工下载这份沙箱版预编译库，把 `RUSTY_V8_ARCHIVE` 与 `RUSTY_V8_SRC_BINDING_PATH` 指过去，再构建。完整命令见 `workflow-demos/README.md` 的 *Building the binaries* 一节。
 
 > [!CAUTION]
-> **不带这两个环境变量时，失败发生在构建阶段，而不是运行阶段。** `build.rs` 会因下载 404 直接 panic（`.github/workflows/ci.yml:100-103` 的注释即为此事），你拿不到那个二进制，而不是拿到一个建好了却跑不起 code mode 的二进制。所以这个坑在构建期就叫得很响、容易定位，不会留到跑 demo 才暴露；与下面 0.2 的 `CODEX_BIN` 正相反，那个是运行期静默拿错二进制。
+> **不带这两个环境变量时，失败发生在构建阶段，而不是运行阶段。** 构建脚本会因下载 404 直接 panic，你拿不到那个二进制，而不是拿到一个建好了却跑不起 code mode 的二进制。所以这个坑在构建期就叫得很响、容易定位，不会留到跑 demo 才暴露；与下面 0.2 的 `CODEX_BIN` 正相反，那个是运行期静默拿错二进制。
 
 > [!WARNING]
 > **两个二进制必须在同一个目录里。** codex 是按自己所在目录去找 `codex-code-mode-host` 的。正常 `cargo build` 天然满足这一点，但把 `codex` 单独拷贝到别处就会失败。
@@ -79,7 +79,7 @@ WIRE_API=anthropic          # 不写则为 responses
 > 不经 `run.sh` 直接用 codex 时，同样的配置写在 `CODEX_HOME/config.toml` 的 `[model_providers.X]` 下，键名是 `wire_api`。`run.sh` 做的就是把 `.env` 填进 `workflow-demos/config/` 里的 profile 模板。
 
 > [!NOTE]
-> `model_reasoning_effort` 与 `model_reasoning_summary` 对 Anthropic provider **无效**——extended thinking 参数尚未接入。状态卡因此不显示这两项，**是正确行为而不是缺陷**：显示一个不起作用的设置比不显示更容易误导。
+> `model_reasoning_effort` 与 `model_reasoning_summary` 对 Anthropic provider **无效**——extended thinking 参数没有接入。状态卡因此不显示这两项，**是正确行为而不是缺陷**：显示一个不起作用的设置比不显示更容易误导。
 > 完整的协议差异、转译规则与已知缺口见 `codex-rs/docs/anthropic_wire_api.md`。
 
 换一个没测过的端点之前，建议先跑一次兼容性探针。「Anthropic 兼容」是厂商的一句声明，而有四件事能把移植弄砸、基础对话一件都测不到：模型是发出结构化 `tool_use` 还是用散文描述调用、freeform 能否扛住 JSON 包装、thinking 回不回 signature、多轮工具结果配不配得上。

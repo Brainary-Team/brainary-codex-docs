@@ -166,13 +166,13 @@ V8 是单线程的，它只负责等。多个工具调用是多条独立事件�
 > 想让派发出去的重活真的并行，把它放进一个标了只读的 MCP server 即可。
 >
 > 这条杠杆不需要宿主配合：包自带的 stdio server 走同一条判据。
-> 但只走得通后半条——`ext/poa` 建的 server config 里 `supports_parallel_tool_calls` 硬编码为 `false`，
+> 但只走得通后半条——包起的 server 那份配置里 `supports_parallel_tool_calls` 固定为 `false`，
 > 服务器级的整体豁免用不了，只能逐个工具标 `readOnlyHint`。
 >
 > 一个附带前提：被 tool_search 藏起来（`Hidden` 曝光度）的工具不算并行安全，哪怕标了只读。
 >
 > 另外，标注缺失还有个比并行更严重的独立后果：会触发审批，而在非 `never` 的审批策略下
-> 那是一个不可恢复的挂死（issue #32）。
+> 那是一个不可恢复的挂死。
 > **审批那条判据与这里不是同一条**——它多一道 `destructiveHint === true` 的短路，
 > 所以 `{readOnlyHint: true, destructiveHint: true}` 这种组合并行安全但仍要审批。三个标注要一起写，理由在那边。
 

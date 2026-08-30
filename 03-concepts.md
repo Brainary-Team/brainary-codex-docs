@@ -242,8 +242,7 @@ graph LR
 于是任何一次阻塞询问都会把整条链路挂死，PoA 程序必须能在没有人的情况下从头跑到尾。需要人判断的地方，只能把判断也写成代码（比如数票），或者把问题留到最后输出里。
 
 > [!NOTE]
-> **这是实现的现状，不是设计上的取舍。** **issue #21** 正在推进"让程序能问人"，尚未落地。
-> 但包这条路是个例外：`codex exec` 在 `ConfigOverrides` 里把审批策略设成 `never`（压在 `-c` 之上，覆盖不掉），问人的请求一律毫秒级自动 decline，所以打成包分发的程序，即使那条落地了也问不到人。
+> **包这条路更彻底。** `codex exec` 把审批策略钉成 `never`，这一层压在 `-c` 之上、覆盖不掉，问人的请求一律在毫秒级被自动 decline，客户端全程收不到。
 
 ---
 
@@ -280,7 +279,7 @@ description = "..."               # 可选
 
 这就是全部字段了。有两件事值得单独说：
 
-- **没有 `env`。** 想给 server 传 API key 之类的东西，当前没有口子，一个"需要凭据的 server"暂时打不进包里。
+- **没有 `env`。** 想给 server 传 API key 之类的东西没有口子，一个"需要凭据的 server"打不进包里。
 - **未知字段被静默忽略，不报错。** manifest 没开严格模式（是有意的，为了让"给更新版运行时写的 manifest"栽在 `runtime` 上而不是栽在字段名上）。代价是字段名打错等于没写：`entery = "main.js"` 会安静地按"缺 entry"处理。别把 `poa_api_version` 对不上就直接拒这件事，推广成"整个 manifest 都是严校验"。
 
 ### 跑起来的时候发生了什么
@@ -323,7 +322,7 @@ graph TD
 真正在服务端的是起 MCP server 这一段，它挂在 thread 级的扩展点上，所以任何前端只要能把包递进去就能复用。
 
 > [!NOTE]
-> **设计上如此，目前只有 CLI 实现了。** `codex exec --poa` 是当前唯一的包入口，TUI 和 SDK 里一行 PoA 相关代码都没有。"TUI/SDK 也能跑包"是这套设计想达成的目标，不是现状。
+> **只有 CLI 实现了这个入口。** `codex exec --poa` 是唯一的包入口，TUI 和 SDK 里一行 PoA 相关代码都没有。
 
 **② server 随 thread 生死，不写全局配置。** 包起的 server 只对这一个 thread 可见，`config.toml` 一个字都不改，thread 关掉进程就回收。
 
@@ -348,7 +347,7 @@ annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false 
 >
 > 整个 server 照抄 `workflow-demos/poas/00_echo/mcp/echo.mjs` 即可：零依赖、手写 stdio JSON-RPC、注释里就写着每个标注为什么要在。
 
-标注的顺带好处：只读同时也是并行安全的判据，所以包自带的只读 server 是可以真并行的（`ext/poa` 建的 config 里 `supports_parallel_tool_calls` 硬编码为 `false`，服务器级的整体豁免用不了，只能逐个工具标只读）。
+标注的顺带好处：只读同时也是并行安全的判据，所以包自带的只读 server 是可以真并行的（包起的 server 那份配置里 `supports_parallel_tool_calls` 固定为 `false`，服务器级的整体豁免用不了，只能逐个工具标只读）。
 
 > [!CAUTION]
 > **不标注的后果按 `approval_policy` 分叉，其中一支是不可恢复的挂死。**
@@ -356,9 +355,9 @@ annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false 
 > | 审批策略 | 后果 |
 > | --- | --- |
 > | `never`（四个 profile 都是这个） | 毫秒级自动 decline，客户端全程收不到请求。工具调用失败，看起来像"人拒绝了"，其实人根本没被问 |
-> | 默认（`auto` / `on-request`） | **无限挂死。** 客户端收得到请求、也答了，但答案被 core 丢弃——审批回执登记在 `active_turn` 上，而 cell 从不建 `active_turn`。`yield_time_ms` 也不生效，钉死的是整条 `thread/codeMode/exec` RPC，客户端跟着一起卡 |
+> | 默认（`auto` / `on-request`） | **无限挂死。** 客户端收得到请求、也答了，但答案被丢弃——审批回执要登记在一次模型回合上，而 cell 从不建立回合。`yield_time_ms` 也不生效，钉死的是整条 `thread/codeMode/exec` RPC，客户端跟着一起卡 |
 >
-> 后一支就是 **issue #32**，已有实测（同一个不带 `readOnlyHint` 的工具，放进普通 turn 或子 agent 里 0.6 秒走通，放进 code mode 必挂）。没有任何一层超时兜得住，MCP 侧那 300 秒的默认超时在挂点的下游，压根没轮到它。
+> 后一支有实测：同一个不带 `readOnlyHint` 的工具，放进普通 turn 或子 agent 里 0.6 秒走通，放进 code mode 必挂。没有任何一层超时兜得住，MCP 侧那 300 秒的默认超时在挂点的下游，压根没轮到它。
 >
 > 所以标注这件事对包作者不只是"避免弹窗"，更是避免一个查不出来的死锁。
 
@@ -396,6 +395,4 @@ poas/build.sh   poas/00_echo             # → ./00_echo.poa（脚本在 poas/ �
 
 > [!NOTE]
 > **包不需要 provider 也能跑。** 包本体不采样，所以 `run.sh` 对包目标会兜底一套占位的 key / model / base_url，而且 base_url 故意用一个关闭的端口（`127.0.0.1:9`）：万一程序真的去采样了，应当当场炸掉，而不是连上碰巧在监听的某台主机。这套兜底排在 `.env` 和 `CODEX_DEMO_*` 下面，配了真 provider 照常生效。
-
-代码位置：格式与校验在 `codex-rs/poa/`，起 server 在 `codex-rs/ext/poa/`。
 

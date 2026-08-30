@@ -137,10 +137,10 @@ else log.push(`memories 返回 ${shapeOf(r.value)}，耗时 ${r.ms}ms`);
 | [`apply_patch`](#apply_patch) | 编辑文件。**入参是裸字符串不是对象** | ✅ 需有 environment | ❌ |
 | [`view_image`](#view_image) | 把磁盘上已存在的本地图片读进上下文 | ✅ 需有 environment | ✅ |
 
-> **shell 工具二选一，但依据不是操作系统。** 判定在 `codex-rs/tools/src/tool_config.rs:81` 的 `shell_type_for_model_and_features()`：unified exec feature 开启且 `conpty_supported()` 为真 → `exec_command` + `write_stdin`；否则回落到 `shell_command`。而 `conpty_supported()`（`codex-rs/utils/pty/src/pty.rs:47-51`）在非 Windows 上恒为真，在 Windows 上只要 Build ≥ `MIN_CONPTY_BUILD` 也为真，所以现代 Windows 同样拿到 `exec_command`，只有 ConPTY 不可用的老 Windows 才回落。`shell_command` 另有一个前提：`environments.single_local_environment().is_some()`（`spec_plan.rs:826`），非单一本地环境时它根本不注册。两者参数名还不一样（`cmd` vs `command`）。
+> **shell 工具二选一，但依据不是操作系统。** 判据是：unified exec feature 开启且 ConPTY 可用 → `exec_command` + `write_stdin`；否则回落到 `shell_command`。而 ConPTY 在非 Windows 上恒为可用，在 Windows 上只要 Build 够新也可用，所以现代 Windows 同样拿到 `exec_command`，只有 ConPTY 不可用的老 Windows 才回落。`shell_command` 另有一个前提：得存在单一本地环境，否则它根本不注册。两者参数名还不一样（`cmd` vs `command`）。
 
 > [!NOTE]
-> **走 `exec_command` 这条路时，`shell_command` 其实也被注册了，但 PoA 调不到。** `spec_plan.rs:846-853` 会把它以 `ToolExposure::Hidden` 注册，注释写明是为兼容 legacy；而 `ToolExposure::is_available_in_code_mode()`（`codex-rs/tools/src/tool_executor.rs:93-98`）把 `Hidden` 判为 `false`。所以它不进 `ALL_TOOLS`、`tools.shell_command(...)` 也调不到。在 `ALL_TOOLS` 里找不到它是正常现象，不是配置错了。
+> **走 `exec_command` 这条路时，`shell_command` 其实也被注册了，但 PoA 调不到。** 它以 `Hidden` 曝光度注册（为兼容 legacy），而 `Hidden` 这一档判定为不进 code mode。所以它不进 `ALL_TOOLS`、`tools.shell_command(...)` 也调不到。在 `ALL_TOOLS` 里找不到它是正常现象，不是配置错了。
 
 #### 计划与目标（4）
 
@@ -231,7 +231,7 @@ else log.push(`memories 返回 ${shapeOf(r.value)}，耗时 ${r.ms}ms`);
 > 判据是「工具自己声明并行安全**或**带只读标注」，所以一个把自己标成只读的 MCP 工具就是并行安全的。
 > 想让派发出去的重活真的并行，把它放进标了只读的 MCP server 即可。
 >
-> 包自带的 server 也走这条判据，但只走得通后半条：`ext/poa` 建的 config 里 `supports_parallel_tool_calls` 硬编码为 `false`，服务器级豁免用不了，只能逐个工具标 `readOnlyHint`。
+> 包自带的 server 也走这条判据，但只走得通后半条：包起的 server 那份配置里 `supports_parallel_tool_calls` 固定为 `false`，服务器级豁免用不了，只能逐个工具标 `readOnlyHint`。
 
 ### 3.2 由 provider 决定的三类
 
@@ -252,21 +252,15 @@ else log.push(`memories 返回 ${shapeOf(r.value)}，耗时 ${r.ms}ms`);
 
 | 工具 | 挡它的机制 | 能否翻盘 |
 | --- | --- | --- |
-| `request_user_input` | 曝光度 `DirectModelOnly`（`spec_plan.rs:909-915`）。**只给模型，不给程序**——这就是"PoA 全程无人值守"的技术根源 | ❌ 无开关。子 agent 也问不了：`request_user_input.rs` 拒绝非 root |
-| `new_context` | 曝光度 `DirectModelOnly`（`spec_plan.rs:923`） | ❌ |
-| `clock` 的 `sleep` | 曝光度 `DirectModelOnly`（`handlers/sleep.rs:73`） | ❌ 要等就用 `setTimeout`，或 `exec_command` 跑 `sleep` |
-| `collaboration__*`（默认配置下） | 曝光度 `DirectModelOnly`，但**由配置驱动**：`non_code_mode_only` 为真才降级（`spec_plan.rs:986-989`） | ✅ 设为 `false` 即可，见 `workflow-demos/config/v2.toml` |
-| `tool_search` | **按 spec 种类整体丢弃，与曝光度无关**（`tools/src/code_mode.rs:176`） | ❌ 改任何配置都没用 |
-| hosted 版联网搜索 | 同上，同一行代码。code mode 会话里根本不会下发，取而代之的是 `web__run` | ❌ 同上 |
+| `request_user_input` | 曝光度 `DirectModelOnly`。**只给模型，不给程序**——这就是"PoA 全程无人值守"的技术根源 | ❌ 无开关。子 agent 也问不了，它拒绝非根线程的调用 |
+| `new_context` | 曝光度 `DirectModelOnly` | ❌ |
+| `clock` 的 `sleep` | 曝光度 `DirectModelOnly` | ❌ 要等就用 `setTimeout`，或 `exec_command` 跑 `sleep` |
+| `collaboration__*`（默认配置下） | 曝光度 `DirectModelOnly`，但**由配置驱动**：`non_code_mode_only` 为真才降级 | ✅ 设为 `false` 即可，见 `workflow-demos/config/v2.toml` |
+| `tool_search` | **按 spec 种类整体丢弃，与曝光度无关** | ❌ 改任何配置都没用 |
+| hosted 版联网搜索 | 同上，同一处判定。code mode 会话里根本不会下发，取而代之的是 `web__run` | ❌ 同上 |
 
 > [!NOTE]
-> **两类机制的区别有实际后果，别混。** 曝光度类的能靠配置或 feature 翻盘；按 spec 种类丢弃的那类挡在 `code_mode_tool_definitions_for_spec()` 的这一行：
->
-> ```rust
-> ToolSpec::ToolSearch { .. } | ToolSpec::WebSearch { .. } => Vec::new(),
-> ```
->
-> 它在生成 code mode 嵌套工具定义时直接返回空，曝光度调成什么都进不来。
+> **两类机制的区别有实际后果，别混。** 曝光度类的能靠配置或 feature 翻盘；按 spec 种类丢弃的那类在生成 code mode 嵌套工具定义时就直接返回空，曝光度调成什么都进不来。
 
 ### 3.4 返回类型：12 个没有形状承诺，用之前先探一次
 
@@ -406,7 +400,7 @@ declare const tools: { shell_command(args: {
 ```
 
 > [!TIP]
-> **`timeout_ms` 与 `exec_command` 的 `yield_time_ms` 长得像，语义相反。** 两者都默认 10000 ms，但 `yield_time_ms` 到点只是让出已有输出、进程继续跑（所以才回一个 `session_id`）；`timeout_ms` 到点是杀进程，退出码 124（`codex-rs/core/src/exec.rs:65`）。同一条 `sleep 30`，前者给你一个可续接的句柄，后者给你一个被杀的失败。
+> **`timeout_ms` 与 `exec_command` 的 `yield_time_ms` 长得像，语义相反。** 两者都默认 10000 ms，但 `yield_time_ms` 到点只是让出已有输出、进程继续跑（所以才回一个 `session_id`）；`timeout_ms` 到点是杀进程，退出码 124。同一条 `sleep 30`，前者给你一个可续接的句柄，后者给你一个被杀的失败。
 
 #### `apply_patch`
 
