@@ -217,7 +217,7 @@ else log.push(`memories 返回 ${shapeOf(r.value)}，耗时 ${r.ms}ms`);
 > 除这 3 个 resource 工具外，每个 MCP server 的每个工具还会各渲染出一个 `mcp__<server>__<tool>`，数量取决于挂载了哪些 server——**包括包自带的那些**。
 
 > [!CAUTION]
-> **`mcp__<server>__<tool>` 这个形状不是契约，别硬编码。** 前缀取决于 `prefix_mcp_tool_names()`，命名空间会被清洗，**重名时还会加哈希后缀**。正确写法是从 `ALL_TOOLS` 里按后缀匹配，并断言只命中一个：
+> **`mcp__<server>__<tool>` 这个形状不是契约，别硬编码。** 前缀由宿主的命名规则决定，命名空间会被清洗，**重名时还会加哈希后缀**。正确写法是从 `ALL_TOOLS` 里按后缀匹配，并断言只命中一个：
 >
 > ```js
 > const matches = ALL_TOOLS.map((t) => t.name).filter((n) => /(^|__)echo__echo$/.test(n));
