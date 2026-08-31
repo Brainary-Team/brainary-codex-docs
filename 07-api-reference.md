@@ -1,26 +1,12 @@
 # API 参考
 
-本篇是按类别组织的查询用参考表。
-
-三类的来源不同：
+书写 PoA 时，能使用的工具有三类不同的来源：
 
 | 类别 | 来源 | 数量 |
 | --- | --- | --- |
 | [全局 primitive](#1-全局-primitive12-个) | codex 内置，直接调用 | 12（不含全局对象 `tools` 本身） |
 | [prelude primitive](#2-prelude-primitive16-个) | 不是内置的，是一层普通 JS 封装。用之前要把 [§2.5](#25-prelude-全文) 的全文抄进程序 | 16 |
 | [内置工具](#3-内置工具) | codex 内置，挂在 `tools` 上 | 30 + MCP + provider 相关 |
-
-本篇各节：
-
-- §1 全局 primitive — §2 prelude primitive（[§2.1 派 agent](#21-派-agent--收结果)、[§2.2 工具函数](#22-工具函数)、[§2.5 全文](#25-prelude-全文)）
-- §3 内置工具：[§3.1 按名字查在不在](#31-按名字查一个工具在不在)（含 [MCP 工具名怎么拼](#mcp5)）、[§3.2 provider 决定的](#32-由-provider-决定的三类)、[§3.3 PoA 拿不到的](#33-poa-拿不到的)、[§3.4 先探返回形状](#34-用之前先探一次返回形状)
-- §4 逐个工具的完整参数声明
-
-首行 pragma 的两个字段（`yield_time_ms` / `max_output_tokens`）不在本篇，见《05-writing.md》§1。
-
-下面的表是"可能有什么"，探针输出的 `all_tools` 才是"现在实际有什么"。换模型、换 provider、改配置之后都要重跑探针。
-
-写程序时不要硬编码工具名：开头读一次 `ALL_TOOLS` 判断在不在，对缺席路径写降级。
 
 ---
 
@@ -32,52 +18,40 @@
 | --- | --- | --- |
 | `text(v)` | 往本次运行的返回值里追加一条文本 | 唯一可靠的输出手段 |
 | `image(v)` / `audio(v)` / `generatedImage(v)` | 追加图片 / 音频 / 生成图，与 `text()` 同族 | 少见 |
-| `store(k, v)` / `load(k)` | 会话级 KV。程序私有，模型看不见 | 偶尔（一次运行只提交一次，通常用 `const` 就够） |
-| `ALL_TOOLS` | 当前可用工具的 `{ name, description }` 数组 | 探测环境用。没有参数 schema |
+| `store(k, v)` / `load(k)` | 会话级 KV。程序私有，模型看不见 | 偶尔 |
+| `ALL_TOOLS` | 当前可用工具的 `{ name, description }` 数组；每项带 per-tool TypeScript declaration | 探测环境和运行时查声明用 |
 | `exit()` | 结束整段脚本。实现方式是抛一个内部哨兵异常，只有抛到顶层才被识别为正常退出 | ⚠️ 不能放在带 `catch` 的 `try` 里；只有 `finally` 时安全 |
 | `setTimeout` / `clearTimeout` | 沙箱里全部的定时器能力就这两个 | 偶尔 |
-| `notify(v)` | 不等程序结束，立刻额外送出一条内容 | ❌ PoA 客户端收不到，不要用它输出进度 |
-| `yield_control()` | 先把已攒的输出交出去，程序继续跑 | ❌ 没有续跑手段，约等于提前结束 |
-
-**沙箱里没有的**：Node、文件系统 API、网络、`console`、`require` / `import`、`fetch`。
-**被删掉的标准全局**：`console`、`Atomics`、`SharedArrayBuffer`、`WebAssembly`。
-`Date.now()` 是有的。
-
-未 `await` 的 promise 会被静默丢弃。程序求值一结束沙箱就没了，没等的活直接消失，不报错。
+| `notify(v)` | 不等程序结束，立刻额外送出一条内容 | ❌ 实测 PoA 客户端收不到，不要用它输出进度 |
+| `yield_control()` | 先把已攒的输出交出去，程序继续跑 | ❌ 实测没有可用的续跑手段，约等于提前结束 |
 
 ---
 
 ## 2. prelude primitive（16 个）
 
-> **这 16 个不是内置的。** 它们是一层普通 JavaScript 封装，全文在 [§2.5](#25-prelude-全文)（226 行）。包的 `entry` 是原样提交的；缺这一层时，对应调用的报错形如 `runBatch is not defined`。
+> **这 16 个不是内置的。** 它们是一层普通 JavaScript 封装，全文在 [§2.5](#25-prelude-全文)（341 行）。
 >
-> 抄的位置：首行 pragma 之后。第 1 行永远留给 `// @exec:`；pragma 不在第 1 行时静默失效。
-
-它存在的理由是两代多 agent 后端的形状完全不同（`wait_agent` 的语义、收 N 个结果的写法、标识用什么、有没有"关闭"，四处全不一样），这一层把差异盖住，于是同一段程序在两代上写法一样。不想引入这一层时，等价的手写版本见《05-writing.md》§12.2。
+> 存放的位置：首行 pragma 之后。
 
 ### 2.1 派 agent / 收结果
 
 | 名字 | 签名（含默认值） | 干什么 | 要注意 |
 | --- | --- | --- | --- |
-| `runBatch` | `runBatch(specs, { concurrency = 3, timeoutMs = 300000 })` | 最常用的一个。派一批 + 等全部完成。`specs` 是 `[{ message, name?, meta? }]`，返回 `[{ handle, reply }]`，顺序与输入一致 | `reply` 是字符串或 `null`（超时、出错，或 v2 下被驱逐）。v1 的收口是逐个 handle 串行等待，所以约束是 N × `timeoutMs` 要留在首行 pragma 的 `yield_time_ms` 之内，不是单个 `timeoutMs` |
-| `spawnAgent` | `spawnAgent(message, { name?, meta? })` | 派一个，立刻返回 handle `{ key, label, meta }` | `meta` 是留给调用方塞上下文的口袋——agent 的回答里不含"我是谁"。`name` 只在 v2 生效：v1 的派发接口没有这一项，传进去直接被丢掉，`label` 取的是模型给的昵称。所以别拿 `label` 去认人，认 `meta` |
+| `runBatch` | `runBatch(specs, { concurrency = 3, timeoutMs = 300000 })` | 最常用的一个。派一批 + 等全部完成。`specs` 是 `[{ message, name?, meta? }]`，返回 `[{ handle, reply }]`，顺序与输入一致 | `reply` 是字符串或 `null`；失败来源见《05-writing.md》§7。v1 的总等待预算最坏为 N × `timeoutMs`，必须留在首行 pragma 的 `yield_time_ms` 内 |
+| `spawnAgent` | `spawnAgent(message, { name?, meta? })` | 派一个，立刻返回 handle `{ key, label, meta }` | 用 `meta` 关联输入；`name` 只在 v2 生效，命名与重试规则见表后。helper 不继承父线程历史，也不暴露 `fork_turns` |
 | `spawnMany` | `spawnMany(specs, concurrency = 3)` | 派一批，只派不等，返回 handle 数组 | 想边派边干别的时用它，否则直接用 `runBatch` |
-| `collectAll` | `collectAll(handles, timeoutMs = 300000, pollMs = 15000)` | 等一批 handle 全部到终态，返回 `Map`：`handle.key → 最终答复 \| null` | 没在超时内完成的会被填成 `null`，不会抛错，要自己检查。`pollMs` 只在 v2 生效——v1 走的是串行单目标等待，不轮询 |
-| `sendAndWait` | `sendAndWait(handle, message, { timeoutMs = 180000, pollMs = 3000 })` | 对一个还活着的 agent 追问，等它给出新答复 | 内部会先记下上一轮答复再轮询比对，避免把旧答案当新的。超时返回 `null` |
-| `closeAll` | `closeAll(handles)` | 关掉这批 agent，回收名额。吞掉所有错误，不会抛出 | 只对 v1 后端有效（v2 那组工具里没有"关闭"）。v1 计的是累计派出数，已完成的 agent 不关掉仍占名额，所以分批派发时每批之后都要调一次，见《05-writing.md》§6.3 |
+| `collectAll` | `collectAll(handles, timeoutMs = 300000, pollMs = 15000)` | 等一批 handle 全部到终态，返回 `Map`：`handle.key → 最终答复 \| null` | 没在超时内完成的会被填成 `null`，不会抛错，要自己检查。等待下限默认 10000 ms，但 v2 宿主配置可改为 0；prelude 会从当前后端的工具声明读取 min/max，解析失败才回落默认值，并把每次原生 wait 钳进该范围。v2 max 为 0 时只取一次列表快照，不忙轮询。`pollMs` 只在 v2 生效 |
+| `sendAndWait` | `sendAndWait(handle, message, { timeoutMs = 180000, pollMs = 3000 })` | 对一个还活着的 agent 追问，等它给出新答复 | 两代的追问前置状态和超时预算不同，见表后 |
+| `closeAll` | `closeAll(handles)` | 关掉这批 agent。吞掉所有错误，不会抛出 | 只对 v1 后端有效（v2 那组工具里没有"关闭"）；生命周期用法见《05-writing.md》§6.3 |
 
 ### 2.2 工具函数
 
 | 名字 | 签名 | 干什么 | 要注意 |
 | --- | --- | --- | --- |
-| `shellLines` | `shellLines(cmd, { validate = null })` | 跑一条 shell 命令，把输出按行拿回来：逐行 trim、丢掉空行 | `validate` 几乎必传。shell 出错时报错信息和正常输出走同一个通道 |
+| `shellLines` | `shellLines(cmd, { validate = null })` | 跑一条 shell 命令，把输出按行拿回来：逐行 trim、丢掉空行 | `validate` 几乎必传。shell 出错时报错信息和正常输出走同一个通道。`exec_command` 默认约 10 秒就让出；长命令可能只返回 `session_id`，而当前封装只取这次的 `output`、不会续接，后续输出会丢失 |
 | `parseJsonReply` | `parseJsonReply(raw)` | 从自由文本里抠 JSON，返回 `{ value, error }` | 匹配是贪婪的：取第一个 `{` 到最后一个 `}` 的整段。回复里出现两段 `{}` 时整体解析失败，不会退回第一段——详见下方 WARNING。三种失败各有不同 `error` 文案：不是字符串 / 没找到 `{}` / 解析异常。永远处理 error 分支 |
-| `mapLimit` | `mapLimit(items, limit, fn)` | 限流并发 map，最多 `limit` 个同时在飞，结果保持输入顺序 | `runBatch` / `spawnMany` 内部就是用它限流的 |
+| `mapLimit` | `mapLimit(items, limit, fn)` | 限流并发 map，最多 `limit` 个同时在飞，结果保持输入顺序 | 非正 `limit` 按 1 处理；空输入仍启动 0 个 worker。`runBatch` / `spawnMany` 内部就是用它限流的 |
 | `SAFE_NAME` | 常量 `/^[A-Za-z0-9._-]+$/` | 现成的白名单正则，配合 `validate` 用 | 只放行字母数字和 `. _ -`，带空格、斜杠、中文的路径会被一并滤掉 |
-
-`parseJsonReply` 的贪婪匹配有一个高频触发场景。它用的是 `/\{[\s\S]*\}/`，从第一个 `{` 一路吃到最后一个 `}`。而《05-writing.md》§5 推荐的 prompt 模板里本身就带一段 `{...}` 格式示例，agent 只要在正式答案前把那段模板复述一遍，两段 `{}` 就被连成一整块 → `JSON.parse` 抛错、`value` 为 `null`，而不是退回前面那一段。
-
-这是 `succeeded / total` 下降的原因之一。prompt 里那句 `不要复述格式说明` 针对的就是这种情况；未被挡住的部分靠 `error` 分支兜住，并把原文留下来。
 
 ### 2.3 环境探测
 
@@ -86,39 +60,50 @@
 | `AGENT_BACKEND` | 常量，`"v1"` / `"v2"` / `null` | 启动时扫一遍 `ALL_TOOLS` 自动判定后端。`null` 就是这套配置下一个 agent 工具都没有 |
 | `requireAgents()` | 函数，返回后端名 | 断言有可用后端，没有就抛错——且错误信息里带上当前全部可用工具名，这是最快的排错入口 |
 
-### 2.4 能力探测
-
-这一组存在的理由：可选工具组（memories、clock、MCP、provider 决定的那几个）"这套配置下没有"是正常结果，不是 bug。缺席的工具在 `tools` 上不存在，调用抛 `tools.x is not a function`；这一组把这个判断收在一处。
-
-| 名字 | 签名 | 干什么 | 要注意 |
-| --- | --- | --- | --- |
-| `hasTool` | `hasTool(name)` | 这个名字在不在当前工具面上 | 就是 `ALL_TOOLS` 的一个 Set 查询，启动时快照一次——一次运行里工具面不会变 |
-| `callTool` | `callTool(name, args = {})` | 调一个工具，永不抛。返回 `{ name, status, value, error, ms }`，`status` 是 `"ok"` / `"absent"` / `"error"` | `absent` 和 `error` 是两回事，别合并处理：前者是"这套配置没装"，后者是"装了但调失败"。`args` 原样透传，所以 freeform 工具直接给字符串：`callTool("apply_patch", "*** Begin Patch\n...")` |
-| `shapeOf` | `shapeOf(value, depth = 1)` | 把一个运行时值描述成结构串，如 `object{output: string, exit_code: number}` | 给[那 12 个只声明 `Promise<unknown>` 的工具](#34-用之前先探一次返回形状)用的——它们对返回形状没有任何承诺，唯一的办法就是看实际回来的是什么 |
-| `timed` | `timed(fn)` | 跑 `fn` 并带上墙钟耗时，永不抛。返回 `{ ok, value, error, ms }` | 用来把"真并行"和"串行"分开——两个都是 `Promise.all`，只有耗时能区分 |
-
-```js
-const r = await callTool("memories__list", {});
-if (r.status === "absent") log.push("memories 未配置，跳过");
-else if (r.status === "error") log.push(`memories 调用失败：${r.error}`);
-else log.push(`memories 返回 ${shapeOf(r.value)}，耗时 ${r.ms}ms`);
-```
-
-包自带的工具不用走这一组做"在不在"的探测：申报了的 MCP server 起不来会直接拒跑，所以它只要出现在 `ALL_TOOLS` 里就一定是起来了。但"在"不等于"调得动"——没写 annotations 的工具会被判定为需要审批，而在 cell 里那是无限挂死。写包时的处置见《10-packaging.md》§4.2。需要做在不在探测的是宿主侧那些工具。
-
-### 2.5 prelude 全文
+### 2.4 prelude 全文
 
 整段抄进 `main.js`，抄在首行 `// @exec:` pragma 之后。它只用到内置的 `tools` 与 `ALL_TOOLS`，没有任何外部依赖。
 
 ```js
-// ---- 以下 226 行是 prelude，程序本体从它下面开始 ----
+// ---- 以下 341 行是 prelude，程序本体从它下面开始 ----
 
-const AGENT_BACKEND = (() => {
-  const names = new Set(ALL_TOOLS.map((t) => t.name));
-  if (names.has("multi_agent_v1__spawn_agent")) return "v1";
-  if (names.has("collaboration__spawn_agent")) return "v2";
-  return null;
+const _TOOL_NAMES = new Set(ALL_TOOLS.map((t) => t.name));
+const _V2_TOOLS = (() => {
+  const spawn = ALL_TOOLS.find((t) =>
+    t.name.endsWith("spawn_agent") &&
+    String(t.description).includes("task_name") &&
+    String(t.description).includes("fork_turns"));
+  if (!spawn) return null;
+  const prefix = spawn.name.slice(0, -"spawn_agent".length);
+  const names = Object.fromEntries(
+    ["spawn_agent", "wait_agent", "list_agents", "followup_task"]
+      .map((key) => [key, `${prefix}${key}`]),
+  );
+  return Object.values(names).every((name) => _TOOL_NAMES.has(name)) ? names : null;
 })();
+const AGENT_BACKEND = _TOOL_NAMES.has("multi_agent_v1__spawn_agent")
+  ? "v1"
+  : _V2_TOOLS ? "v2" : null;
+
+/** 从当前后端的 wait_agent 声明读取动态 min/max；读不到时回落到宿主默认值。 */
+function _readWaitLimits() {
+  const waitName =
+    AGENT_BACKEND === "v1" ? "multi_agent_v1__wait_agent" : _V2_TOOLS?.wait_agent;
+  const description = ALL_TOOLS.find((t) => t.name === waitName)?.description || "";
+  const min = Number(description.match(/\bmin(?:imum)?\b[^0-9]{0,24}(\d+)/i)?.[1]);
+  const max = Number(description.match(/\bmax(?:imum)?\b[^0-9]{0,24}(\d+)/i)?.[1]);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min < 0 || max < min) {
+    return { min: 10000, max: 3600000 };
+  }
+  return { min, max };
+}
+
+const _WAIT_LIMITS = _readWaitLimits();
+const _clampWaitMs = (ms) => Math.min(_WAIT_LIMITS.max, Math.max(_WAIT_LIMITS.min, ms));
+/** v2 sibling 名必须唯一；nonce + 序号覆盖当前 cell，宿主冲突再有限重试。 */
+const _agentNonce = Date.now().toString(36);
+let _agentSeq = 0;
+const _SPAWN_ATTEMPTS = 3;
 
 /** 没有任何多 agent 工具进到 code mode 时抛错，并列出当前可用的工具名。 */
 function requireAgents() {
@@ -129,7 +114,7 @@ function requireAgents() {
   );
 }
 
-/** 对 items 跑 fn，最多 limit 个同时在飞。结果保持输入顺序。 */
+/** 对 items 跑 fn，最多 limit 个同时在飞；非正 limit 按 1 处理。结果保持输入顺序。 */
 async function mapLimit(items, limit, fn) {
   const results = new Array(items.length);
   let next = 0;
@@ -140,7 +125,9 @@ async function mapLimit(items, limit, fn) {
       results[index] = await fn(items[index], index);
     }
   };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  await Promise.all(
+    Array.from({ length: Math.min(Math.max(1, limit), items.length) }, worker),
+  );
   return results;
 }
 
@@ -154,59 +141,133 @@ async function spawnAgent(message, opts = {}) {
     const a = await tools.multi_agent_v1__spawn_agent({ message });
     return { key: a.agent_id, label: a.nickname || a.agent_id, meta: opts.meta };
   }
-  const taskName = String(opts.name || `task_${Math.floor(Date.now() % 1e6)}`).replace(
-    /[^A-Za-z0-9_]/g,
-    "_",
-  );
-  const a = await tools.collaboration__spawn_agent({ task_name: taskName, message });
-  return { key: a.task_name, label: a.task_name, meta: opts.meta };
+  const cleaned = String(opts.name ?? "task")
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "_");
+  const base = !cleaned || cleaned === "root" || cleaned === "_" ? "task" : cleaned;
+  for (let attempt = 0; attempt < _SPAWN_ATTEMPTS; attempt++) {
+    const seq = _agentSeq++;
+    const taskName = attempt === 0 ? `${base}_${seq}` : `${base}_${_agentNonce}_${seq}_${attempt}`;
+    try {
+      const a = await tools[_V2_TOOLS.spawn_agent]({
+        task_name: taskName,
+        message,
+        fork_turns: "none",
+      });
+      return { key: a.task_name, label: a.task_name, meta: opts.meta };
+    } catch (err) {
+      if (!/already exists/i.test(String(err)) || attempt + 1 === _SPAWN_ATTEMPTS) throw err;
+    }
+  }
+  throw new Error("unreachable spawn retry state");
 }
 
 /** 限流派一批。specs 是 [{message, name?, meta?}]。 */
 async function spawnMany(specs, concurrency = 3) {
-  return mapLimit(specs, concurrency, (spec, i) =>
-    spawnAgent(spec.message, { name: spec.name || `task_${i}`, meta: spec.meta }),
+  return mapLimit(specs, concurrency, (spec) =>
+    spawnAgent(spec.message, { name: spec.name, meta: spec.meta }),
   );
 }
 
 const _isFinalStatus = (status) =>
-  status && typeof status === "object" && ("completed" in status || "errored" in status);
+  status === "shutdown" ||
+  status === "not_found" ||
+  (status && typeof status === "object" && ("completed" in status || "errored" in status));
+
+const _replyOf = (status) =>
+  status && typeof status === "object" && "completed" in status
+    ? status.completed ?? null
+    : null;
+
+/**
+ * 只收已确认到达终态的 handle；Map 中存在 key 但值为 null，表示终态没有答复。
+ * previous 非空时忽略与上一轮相同的终态答复；allowInterrupted 只供追问前确认可恢复状态。
+ */
+async function _collectTerminal(
+  handles,
+  timeoutMs,
+  pollMs,
+  previous = null,
+  allowInterrupted = false,
+) {
+  const backend = requireAgents();
+  const replies = new Map();
+  timeoutMs = Math.max(_WAIT_LIMITS.min, timeoutMs);
+  pollMs = Math.max(_WAIT_LIMITS.min, pollMs);
+
+  const record = (handle, status) => {
+    if (
+      !_isFinalStatus(status) &&
+      !(backend === "v2" && allowInterrupted && status === "interrupted")
+    ) {
+      return;
+    }
+    const reply = _replyOf(status);
+    if (previous?.has(handle.key) && previous.get(handle.key) === reply) return;
+    replies.set(handle.key, reply);
+  };
+
+  if (handles.length === 0) return replies;
+
+  if (backend === "v1") {
+    // 一次只等一个：多目标等待会反复返回最先完成的那个。
+    for (const h of handles) {
+      const deadline = Date.now() + timeoutMs;
+      let firstWait = true;
+      while (!replies.has(h.key)) {
+        const remainingMs = deadline - Date.now();
+        if (!firstWait && (remainingMs <= 0 || remainingMs < _WAIT_LIMITS.min)) break;
+        const outcome = await tools.multi_agent_v1__wait_agent({
+          targets: [h.key],
+          timeout_ms: _clampWaitMs(remainingMs),
+        });
+        firstWait = false;
+        record(h, (outcome.status || {})[h.key]);
+        if (_WAIT_LIMITS.max === 0) break;
+      }
+    }
+    return replies;
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  let firstWait = true;
+  for (;;) {
+    const listed = await tools[_V2_TOOLS.list_agents]({});
+    for (const entry of listed.agents || []) {
+      const match = handles.find(
+        (h) => entry.agent_name === h.key || entry.agent_name.endsWith(`/${h.key}`),
+      );
+      if (match && !replies.has(match.key)) record(match, entry.agent_status);
+    }
+    if (replies.size >= handles.length) break;
+
+    // 每次 wait 后都会再做一次 list；第一次允许按 min 等待，避免 timeout === min 时零 wait。
+    const remainingMs = deadline - Date.now();
+    if (_WAIT_LIMITS.max === 0) break;
+    if (!firstWait && (remainingMs <= 0 || remainingMs < _WAIT_LIMITS.min)) break;
+    await tools[_V2_TOOLS.wait_agent]({
+      timeout_ms: _clampWaitMs(Math.min(pollMs, remainingMs)),
+    });
+    firstWait = false;
+  }
+  return replies;
+}
+
+/** 对一个 v2 handle 只取一次当前列表快照；列表缺席与非终态分开返回。 */
+async function _snapshotV2(handle) {
+  const listed = await tools[_V2_TOOLS.list_agents]({});
+  const entry = (listed.agents || []).find(
+    (item) => item.agent_name === handle.key || item.agent_name.endsWith(`/${handle.key}`),
+  );
+  return entry ? { found: true, status: entry.agent_status } : { found: false, status: null };
+}
 
 /**
  * 等每个 handle 到终态。
  * 返回 Map：handle.key → 最终答复字符串（或 null）。
  */
 async function collectAll(handles, timeoutMs = 300000, pollMs = 15000) {
-  const backend = requireAgents();
-  const replies = new Map();
-
-  if (backend === "v1") {
-    // 一次只等一个：多目标等待会反复返回最先完成的那个。
-    for (const h of handles) {
-      const outcome = await tools.multi_agent_v1__wait_agent({
-        targets: [h.key],
-        timeout_ms: timeoutMs,
-      });
-      const status = (outcome.status || {})[h.key] || {};
-      replies.set(h.key, status.completed ?? null);
-    }
-    return replies;
-  }
-
-  const deadline = Date.now() + timeoutMs;
-  while (replies.size < handles.length && Date.now() < deadline) {
-    const listed = await tools.collaboration__list_agents({});
-    for (const entry of listed.agents || []) {
-      const match = handles.find(
-        (h) => entry.agent_name === h.key || entry.agent_name.endsWith(`/${h.key}`),
-      );
-      if (match && !replies.has(match.key) && _isFinalStatus(entry.agent_status)) {
-        replies.set(match.key, entry.agent_status.completed ?? null);
-      }
-    }
-    if (replies.size >= handles.length) break;
-    await tools.collaboration__wait_agent({ timeout_ms: pollMs });
-  }
+  const replies = await _collectTerminal(handles, timeoutMs, pollMs);
   for (const h of handles) if (!replies.has(h.key)) replies.set(h.key, null);
   return replies;
 }
@@ -220,24 +281,34 @@ async function runBatch(specs, { concurrency = 3, timeoutMs = 300000 } = {}) {
 
 /**
  * 对一个还活着的 agent 追问，等它给出**新**答复。
- * v1 的 wait_agent 对已处于终态的 agent 会立刻返回旧答案，所以先记下上一轮再轮询比对。
+ * v1 必须先取得终态基准；v2 对 final / interrupted 直接追问，列表缺席也直接尝试 followup。
+ * 明确仍在运行时才先等上一轮。两阶段各有 timeoutMs 预算，另有工具调用开销。
  */
 async function sendAndWait(handle, message, { timeoutMs = 180000, pollMs = 3000 } = {}) {
   const backend = requireAgents();
-  const before = (await collectAll([handle], 1000)).get(handle.key) ?? null;
-
+  timeoutMs = Math.max(_WAIT_LIMITS.min, timeoutMs);
+  pollMs = Math.max(_WAIT_LIMITS.min, pollMs);
   if (backend === "v1") {
+    const before = await _collectTerminal([handle], timeoutMs, pollMs);
+    if (!before.has(handle.key)) return null;
     await tools.multi_agent_v1__send_input({ target: handle.key, message });
-  } else {
-    await tools.collaboration__followup_task({ target: handle.key, message });
+    const after = await _collectTerminal([handle], timeoutMs, pollMs, before);
+    return after.get(handle.key) ?? null;
   }
 
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const now = (await collectAll([handle], pollMs)).get(handle.key) ?? null;
-    if (now !== null && now !== before) return now;
+  let before = new Map();
+  const snapshot = await _snapshotV2(handle);
+  if (snapshot.found) {
+    if (_isFinalStatus(snapshot.status) || snapshot.status === "interrupted") {
+      before.set(handle.key, _replyOf(snapshot.status));
+    } else {
+      before = await _collectTerminal([handle], timeoutMs, pollMs, null, true);
+      if (!before.has(handle.key)) return null;
+    }
   }
-  return null;
+  await tools[_V2_TOOLS.followup_task]({ target: handle.key, message });
+  const after = await _collectTerminal([handle], timeoutMs, pollMs, before);
+  return after.get(handle.key) ?? null;
 }
 
 /** 尽力关闭，永不抛出。v2 那组工具里没有"关闭"，所以对 v2 是空操作。 */
@@ -280,8 +351,6 @@ const SAFE_NAME = /^[A-Za-z0-9._-]+$/;
 // "这套配置下没有"是正常结果，不是 bug。没有下面这几个函数，碰一下可选工具要么在
 // `tools.x is not a function` 上炸掉，要么每个调用点都手写一遍 try/catch。
 // ---------------------------------------------------------------------------
-
-const _TOOL_NAMES = new Set(ALL_TOOLS.map((t) => t.name));
 
 /** name 在这套配置、模型与 provider 下有没有进到 code mode。 */
 function hasTool(name) {
@@ -349,15 +418,13 @@ async function timed(fn) {
 
 ### 3.1 按名字查一个工具在不在
 
-> **⚠ 快照，不是契约。** 这张表是一次实测的结果，只说明"大概会看到什么"。工具面随模型、provider 与配置变化，现在实际有什么以探针输出的 `all_tools` 为准。
-
 "默认可得"一列：
 
 | 记号 | 含义 |
 | :---: | --- |
 | ✅ | 默认配置下就在 |
 | ⚙ | 需打开对应 feature 或配置 |
-| ⚠ | 默认可调用，但声明不出现（`Deferred` 档） |
+| ⚠ | 默认可调用，但声明不进 CodeModeOnly 的 `exec` 说明正文（`Deferred` 档）；运行时仍可从 `ALL_TOOLS[].description` 读取完整 per-tool 声明 |
 | 探针 | 外挂 MCP server 提供，不是 codex 内建 |
 
 #### 执行与文件（5）
@@ -366,13 +433,11 @@ async function timed(fn) {
 | --- | --- | --- | :---: |
 | [`exec_command`](#exec_command) | 在 PTY 中跑一条命令；进程未结束时返回可续接的 `session_id` | ✅ ConPTY 可用时 | ✅ |
 | [`write_stdin`](#write_stdin) | 向已有 exec 会话写 stdin 并取回最近输出，也可空写用作轮询 | ✅ 同上 | ✅ |
-| [`shell_command`](#shell_command) | 跑一条 shell 脚本，无会话概念的一次性执行 | ⚙ 仅回落时，且 code mode 看不见 | ✅ |
+| [`shell_command`](#shell_command) | 跑一条 shell 脚本，无会话概念的一次性执行 | ⚙ 仅回落路径可见；走 `exec_command` 路径时以 `Hidden` 注册，code mode 看不见 | ✅ |
 | [`apply_patch`](#apply_patch) | 编辑文件。入参是裸字符串不是对象 | ✅ 需有 environment | ❌ |
 | [`view_image`](#view_image) | 把磁盘上已存在的本地图片读进上下文 | ✅ 需有 environment | ✅ |
 
-> **shell 工具二选一，但依据不是操作系统。** 判据是：unified exec feature 开启且 ConPTY 可用 → `exec_command` + `write_stdin`；否则回落到 `shell_command`。而 ConPTY 在非 Windows 上恒为可用，在 Windows 上只要 Build 够新也可用，所以现代 Windows 同样拿到 `exec_command`，只有 ConPTY 不可用的老 Windows 才回落。`shell_command` 另有一个前提：得存在单一本地环境，否则它根本不注册。两者参数名还不一样（`cmd` vs `command`）。
-
-走 `exec_command` 这条路时，`shell_command` 同样被注册了，但 PoA 调不到。它以 `Hidden` 曝光度注册（为兼容 legacy），而 `Hidden` 这一档判定为不进 code mode。所以它不进 `ALL_TOOLS`、`tools.shell_command(...)` 也调不到。在 `ALL_TOOLS` 里找不到它是正常现象，不是配置错了。
+> **shell 工具二选一，但依据不是操作系统。** unified exec feature 开启且 ConPTY 可用时使用 `exec_command` + `write_stdin`，否则回落到 `shell_command`；现代 Windows 通常也走前者。回落还要求存在单一本地环境。走 unified exec 路径时，为兼容 legacy 而注册的 `shell_command` 以 `Hidden` 曝光，不会进入 `ALL_TOOLS`，PoA 也无法调用。两条路径的命令参数分别是 `cmd` 和 `command`。
 
 #### 计划与目标（4）
 
@@ -382,8 +447,6 @@ async function timed(fn) {
 | [`create_goal`](#create_goal) | 开启一个活跃目标，可带 token 预算 | ✅ |
 | [`get_goal`](#get_goal) | 读当前目标的状态、预算、用量 | ✅ |
 | [`update_goal`](#update_goal) | 把目标标记为 `complete` 或 `blocked` | ✅ |
-
-> **这一组 PoA 里基本用不上**：它们是给 AI 向人展示进度用的，程序侧用普通变量记状态即可。
 
 #### 上下文与权限（2）
 
@@ -415,15 +478,15 @@ async function timed(fn) {
 
 | 工具 | 作用 | 默认可得 |
 | --- | --- | --- |
-| [`multi_agent_v1__spawn_agent`](#multi_agent_v1__spawn_agent) | 派生子代理，返回 `agent_id` | ⚠ 见下 |
-| [`multi_agent_v1__wait_agent`](#multi_agent_v1__wait_agent) | 阻塞等待代理进入终态；多 id 时等最先结束的那个 | ⚠ 见下 |
-| [`multi_agent_v1__send_input`](#multi_agent_v1__send_input) | 给已有代理发消息，`interrupt=true` 可立刻改变方向 | ⚠ 见下 |
-| [`multi_agent_v1__resume_agent`](#multi_agent_v1__resume_agent) | 恢复已关闭的代理 | ⚠ 见下 |
-| [`multi_agent_v1__close_agent`](#multi_agent_v1__close_agent) | 关闭代理及其后代，释放并发额度 | ⚠ 见下 |
-
-> 这 5 条在默认配置下是 `Deferred`：调得通，但声明不出现，`ALL_TOOLS` 里也只有名字和一句描述。它们的参数只能查本文档 §4，运行时读不到。
+| [`multi_agent_v1__spawn_agent`](#multi_agent_v1__spawn_agent) | 派生子代理，返回 `agent_id` | ⚠ |
+| [`multi_agent_v1__wait_agent`](#multi_agent_v1__wait_agent) | 阻塞等待代理进入终态；多 id 时等最先结束的那个 | ⚠ |
+| [`multi_agent_v1__send_input`](#multi_agent_v1__send_input) | 给已有代理发消息，`interrupt=true` 可立刻改变方向 | ⚠ |
+| [`multi_agent_v1__resume_agent`](#multi_agent_v1__resume_agent) | 恢复已关闭的代理 | ⚠ |
+| [`multi_agent_v1__close_agent`](#multi_agent_v1__close_agent) | 关闭代理及其后代，释放并发额度 | ⚠ |
 
 #### 子代理 v2（6）
+
+> 下表与 §4 的 `collaboration__*` 名称是默认 namespace 的静态快照，不是可执行代码应依赖的固定前缀。程序应按 §2.5 的方式从 `ALL_TOOLS` 找到带 `task_name` / `fork_turns` 的 `*spawn_agent`，再验证并保存同前缀的实际工具名。
 
 | 工具 | 作用 | 默认可得 |
 | --- | --- | --- |
@@ -448,19 +511,19 @@ async function timed(fn) {
 
 > 除这 3 个 resource 工具外，每个 MCP server 的每个工具还会各渲染出一个 `mcp__<server>__<tool>`，数量取决于挂载了哪些 server——包括包自带的那些。
 
-`mcp__<server>__<tool>` 这个形状不是契约，不要硬编码。前缀由宿主的命名规则决定，命名空间会被清洗，重名时还会加哈希后缀。正确写法是从 `ALL_TOOLS` 里按后缀匹配，并断言只命中一个：
+`mcp__<server>__<tool>` 这个形状不是契约，不要硬编码。前缀由宿主的命名规则决定，命名空间会被清洗，重名时还会加哈希后缀。从 `ALL_TOOLS` 按后缀匹配只能扛住前缀变化，扛不住工具名触发 64 字符截断并追加 SHA-1 的 12 位哈希后缀；那时原来的 `<server>__<tool>` 尾段可能已经不存在。
 
 下面以一个包自带的、名为 `echo` 的 server 上那个 `echo` 工具为例，它在当前配置下渲染成 `mcp__echo__echo`：
 
 ```js
-// 匹配 <server>__<tool> 后缀，不依赖前缀的具体形状
+// 只规避前缀变化；哈希后缀或 64 字符截断仍会让匹配失败
 const matches = ALL_TOOLS.map((t) => t.name).filter((n) => /(^|__)echo__echo$/.test(n));
 if (matches.length !== 1) throw new Error(`expected exactly one echo tool, found ${matches.length}`);
 const echo = matches[0];
 const r = await tools[echo]({ text: "hi" });
 ```
 
-那句断言不是冗余：它把命名规则的变化暴露成一次显式错误。
+那句断言不是冗余：它的价值是把命名规则变化显式暴露成错误，而不是静默调错工具；它并没有把后缀本身变成稳定契约。
 
 一般 MCP 工具的并行安全是"有条件"的，而这是唯一可用的手段。判据是"工具自己声明并行安全，或带只读标注"，所以一个把自己标成只读的 MCP 工具就是并行安全的。要让派发出去的耗时任务真正并行，把它放进标了只读的 MCP server。
 
@@ -474,9 +537,7 @@ const r = await tools[echo]({ text: "hi" });
 | --- | --- | --- |
 | `web__run` | 联网搜索。`supports_parallel_tool_calls` 为真，是少数几个能让并行派发真正并行的工具 | provider 是 OpenAI 系或显式声明支持独立 web search |
 | `skills__list` / `skills__read` | 列举与读取 skill | orchestrator skill provider 可用 |
-| `image_gen__*` | 生成图片 | provider 能力位与 feature 同时为真 |
-
-code mode 会话里可用的联网搜索是扩展工具 `web__run`，而不是 hosted 版——后者的规格根本不会下发到这类会话。`web__run` 声明了并行安全，是少数能让并行派发真正并行的工具之一。
+| `image_gen__imagegen` | 生成图片 | provider 能力位与 feature 同时为真 |
 
 ### 3.3 PoA 拿不到的
 
@@ -489,8 +550,6 @@ code mode 会话里可用的联网搜索是扩展工具 `web__run`，而不是 h
 | `tool_search` | 按 spec 种类整体丢弃，与曝光度无关 | ❌ 改任何配置都没用 |
 | hosted 版联网搜索 | 同上，同一处判定。code mode 会话里根本不会下发，取而代之的是 `web__run` | ❌ 同上 |
 
-两类机制的区别有实际后果：曝光度类的可以靠配置或 feature 恢复；按 spec 种类丢弃的那类在生成 code mode 嵌套工具定义时直接返回空，曝光度调成什么都进不来。
-
 ### 3.4 用之前先探一次返回形状
 
 下表的计数是一次快照，与 §4 的声明同源；工具面变了它不会自动更新，以 §4 的声明和探针输出为准。
@@ -499,25 +558,65 @@ code mode 会话里可用的联网搜索是扩展工具 `web__run`，而不是 h
 | --- | ---: | --- |
 | 结构化（`Promise<{...}>`，字段带注释） | 18 | `exec_command`、`write_stdin`、`view_image`、`clock__curr_time`、`get_context_remaining`、memories 全部 4 个、multi_agent_v1 全部 5 个、collaboration 的 `spawn_agent` / `wait_agent` / `interrupt_agent` / `list_agents` |
 | `Promise<unknown>` | 12 | `apply_patch`、`shell_command`、`update_plan`、`create_goal`、`get_goal`、`update_goal`、`request_permissions`、3 个 mcp resource 工具、collaboration 的 `send_message` / `followup_task` |
+| `CallToolResult`（MCP 探针示例，不计入上述 30 个内置工具） | 2 | `mcp__probe__echo`、`mcp__probe__no_output_schema` |
 
-这些声明不产生任何运行时约束——code mode 跑的是纯 JavaScript，不是 TypeScript。它们只是给模型和人看的文档。所以"结构化"那 18 个同样不保证字段一定在（agent 挂了、超时了，字段就是缺的）；区别只在于前者有文档承诺，后者连文档承诺都没有。两类都要防御，后者防御成本更高。
+这些 TypeScript 声明只是运行时文档，不提供 V8 静态类型检查。调用失败时 Promise 可能直接 reject；成功后，结构化返回仍要防御可选字段和动态 map 缺项。对 `Promise<unknown>`，先用 `text(JSON.stringify(result))` 探测实际形状，再写解析。
 
-`Promise<unknown>` 意味着程序侧拿到的是一个没有任何形状承诺的值，字段名只能自己试出来。
-
-对这 12 个，先 `text(JSON.stringify(result))` 输出一次形状，再据此写解析。索引签名下不存在的字段返回 `undefined`，不报错。
-
-MCP 工具的返回被包成 `CallToolResult`：
+MCP per-tool declaration 会引用共享类型块。CodeModeOnly 的 `exec` 说明会给出一次，ordinary CodeMode 的 `exec` 说明不会；这里恢复一份紧凑的离线定义，供两种模式查阅，也让下面两个探针声明自洽：
 
 ```ts
-// <TStructured = ...> 是带默认值的泛型参数：不写实参时就退化成"任意键值对"，
-// 也就是没有形状承诺。server 声明了 outputSchema 才会填进具体字段
-type CallToolResult<TStructured = { [key: string]: unknown }> = {
-  _meta?: MetaObject;             // ? = 可选字段，协议层元数据，业务逻辑一般不看
-  content: ContentBlock[];        // 唯一必填项：给人/模型看的内容块数组
-  isError?: boolean;              // 可选，缺席不等于成功，判错要写 === true
-  // 机器要用的那份；没有 outputSchema 时它可能不存在
+type Role = "user" | "assistant";
+type MetaObject = Record<string, unknown>;
+type Annotations = {
+  audience?: Role[];
+  priority?: number;
+  lastModified?: string;
+};
+type Icon = {
+  src: string;
+  mimeType?: string;
+  sizes?: string[];
+  theme?: "light" | "dark";
+};
+type TextResourceContents = {
+  uri: string;
+  mimeType?: string;
+  _meta?: MetaObject;
+  text: string;
+};
+type BlobResourceContents = {
+  uri: string;
+  mimeType?: string;
+  _meta?: MetaObject;
+  blob: string;
+};
+type ContentBlock =
+  | { type: "text"; text: string; annotations?: Annotations; _meta?: MetaObject }
+  | { type: "image"; data: string; mimeType: string; annotations?: Annotations; _meta?: MetaObject }
+  | { type: "audio"; data: string; mimeType: string; annotations?: Annotations; _meta?: MetaObject }
+  | {
+      type: "resource_link";
+      name: string;
+      uri: string;
+      title?: string;
+      description?: string;
+      mimeType?: string;
+      icons?: Icon[];
+      annotations?: Annotations;
+      size?: number;
+      _meta?: MetaObject;
+    }
+  | {
+      type: "resource";
+      resource: TextResourceContents | BlobResourceContents;
+      annotations?: Annotations;
+      _meta?: MetaObject;
+    };
+type CallToolResult<TStructured = Record<string, unknown>> = {
+  _meta?: MetaObject;
+  content: ContentBlock[];
+  isError?: boolean;
   structuredContent?: TStructured;
-  // 索引签名：允许出现任意其他键。代价是写错字段名不会报错，只会静默拿到 undefined
   [key: string]: unknown;
 };
 ```
@@ -525,12 +624,6 @@ type CallToolResult<TStructured = { [key: string]: unknown }> = {
 ---
 
 ## 4. 查一个工具收什么参数
-
-> 下列声明取自 codex 实际发出的请求体，声明骨架、工具名、字段名、类型字面量一律保持原样，只有说明与 `//` 注释是中文。
->
-> 每个工具名下方的引用段是该工具自己的 description 原文，收件方是调用它的模型，所以其中的"你"指调用方而非读者。
->
-> codex 为每个工具单独渲染一次 `declare const tools: { ... }`，下面保留这个原样，不是笔误。
 
 ### 执行与文件
 
@@ -542,23 +635,35 @@ type CallToolResult<TStructured = { [key: string]: unknown }> = {
 declare const tools: { exec_command(args: {
   // 要执行的 shell 命令。
   cmd: string;
+  // 仅连接了多个 environment 的构建会出现；省略则使用主 environment。
+  environment_id?: string;
+  // 仅启用 `features.exec_permission_approvals` 时出现；须配合 `with_additional_permissions`。
+  additional_permissions?: {
+    file_system?: {
+      read?: Array<string>;
+      write?: Array<string>;
+    };
+    network?: {
+      enabled?: boolean;
+    };
+  };
   // 用于 `require_escalated` 的、面向用户的审批问题；其余情况省略。
   justification?: string;
-  // true 让 shell 以 -l/-i 语义运行，false 则关闭。默认 true。
+  // 仅 `allow_login_shell` 开启时出现。true 让 shell 以 -l/-i 语义运行，false 则关闭。默认 true。
   login?: boolean;
   // 输出 token 预算。默认 10000 tokens；更大的请求可能被策略封顶。
   max_output_tokens?: number;
   // 针对 `cmd` 的可复用审批前缀，仅在 `sandbox_permissions: "require_escalated"` 时有效；例如 ["git", "pull"]。
   prefix_rule?: Array<string>;
-  // 单条命令级别的沙箱覆盖。默认 `use_default`；需要脱离沙箱执行时用 `require_escalated`。
-  sandbox_permissions?: "use_default" | "require_escalated";
-  // 要启动的 shell 可执行文件。默认为用户的默认 shell。
+  // 单条命令级别的沙箱覆盖。`with_additional_permissions` 仅在对应 feature 开启时出现。
+  sandbox_permissions?: "use_default" | "with_additional_permissions" | "require_escalated";
+  // 仅 `include_shell_parameter` 开启时出现。要启动的 shell 可执行文件；默认为用户的默认 shell。
   shell?: string;
   // true 为该命令分配一个 PTY；false 或省略则使用普通管道。
   tty?: boolean;
   // 命令的工作目录。默认为本轮的 cwd。
   workdir?: string;
-  // 返回输出前的等待时长。默认 10000 ms；有效范围为 250-30000 ms。
+  // 返回输出前的等待时长。默认 10000 ms；非 Windows 有效范围 250-30000 ms，Windows 为 10000-30000 ms。
   yield_time_ms?: number;
 }): Promise<{
   // 响应中报告了分块标识时随之返回的 chunk id。
@@ -596,11 +701,17 @@ declare const tools: { write_stdin(args: {
   //     默认值 250 会被抬到 5000，所以空轮询没有"快速返回"这个选项
   yield_time_ms?: number;
 }): Promise<{
+  // 响应中报告了分块标识时随之返回的 chunk id。
   chunk_id?: string;
+  // 命令在本次调用内结束时的进程退出码。
   exit_code?: number;
+  // 输出被截断前的近似 token 数。
   original_token_count?: number;
+  // 命令的输出文本，可能已被截断。
   output: string;
+  // 进程仍在运行时，用于传给后续 write_stdin 的会话标识。
   session_id?: number;
+  // 等待输出所耗的墙钟时间，单位为秒。
   wall_time_seconds: number;
 }>; };
 ```
@@ -614,14 +725,24 @@ declare const tools: { write_stdin(args: {
 declare const tools: { shell_command(args: {
   // 要在用户默认 shell 中运行的 shell 脚本。
   command: string;
+  // 仅启用 `features.exec_permission_approvals` 时出现；须配合 `with_additional_permissions`。
+  additional_permissions?: {
+    file_system?: {
+      read?: Array<string>;
+      write?: Array<string>;
+    };
+    network?: {
+      enabled?: boolean;
+    };
+  };
   // 用于 `require_escalated` 的、面向用户的审批问题；其余情况省略。
   justification?: string;
-  // true 以 login shell 语义运行，false 则关闭。默认 true。
+  // 仅 `allow_login_shell` 开启时出现。true 以 login shell 语义运行，false 则关闭。默认 true。
   login?: boolean;
   // 针对 `cmd` 的可复用审批前缀，仅在 `sandbox_permissions: "require_escalated"` 时有效。
   prefix_rule?: Array<string>;
-  // 单条命令级别的沙箱覆盖。默认 `use_default`。
-  sandbox_permissions?: "use_default" | "require_escalated";
+  // 单条命令级别的沙箱覆盖。`with_additional_permissions` 仅在对应 feature 开启时出现。
+  sandbox_permissions?: "use_default" | "with_additional_permissions" | "require_escalated";
   // 命令的最长运行时间。默认 10000 ms。
   timeout_ms?: number;
   // 命令的工作目录。默认为本轮的 cwd。
@@ -647,8 +768,10 @@ declare const tools: { apply_patch(input: string): Promise<unknown>; };
 
 ```ts
 declare const tools: { view_image(args: {
-  // 图片细节级别。默认 `high`；需要保留精确分辨率时用 `original`。
+  // 仅模型声明支持请求原图细节时出现。默认 `high`；需要保留精确分辨率时用 `original`。
   detail?: "high" | "original";
+  // 仅多 environment 构建出现；省略则使用 primary environment。
+  environment_id?: string;
   // 图片文件的本地文件系统路径。
   path: string;
 }): Promise<{
@@ -808,7 +931,7 @@ declare const tools: { memories__add_ad_hoc_note(args: {
 
 ### 子代理 v1
 
-抄了 §2.5 那一层就不用直接碰这一组，它盖住的正是两代之间的差异。列在这里有两个用处：读 §2.5 时对上号，以及需要它没封装的能力（如 `resume_agent`、`interrupt_agent`）时知道去调什么。不引入那一层时，手写版本见《05-writing.md》§12.2。
+使用 §2.5 那一层时通常不用直接碰这一组。列在这里有两个用处：读实现时对上号，以及需要它没封装的能力（如 `resume_agent`、`interrupt_agent`）时知道去调什么。纯内置版本见《05-writing.md》§12.2。
 
 #### `multi_agent_v1__spawn_agent`
 
@@ -817,6 +940,8 @@ declare const tools: { memories__add_ad_hoc_note(args: {
 
 ```ts
 declare const tools: { multi_agent_v1__spawn_agent(args: {
+  // 仅宿主构建/角色配置暴露该覆盖项时出现。
+  agent_type?: string;
   // true 把当前 thread 的历史 fork 给新代理；false 或省略则只用初始 prompt 起步。
   fork_context?: boolean;
   // 结构化输入条目。用它来传显式的 mention（例如 app:// 形式的 connector 路径）。
@@ -840,7 +965,7 @@ declare const tools: { multi_agent_v1__spawn_agent(args: {
   model?: string;
   // 新代理的推理强度覆盖项。省略则继承父级的推理强度。
   reasoning_effort?: string;
-  // 新代理的服务层级覆盖项。除非明确要求，否则省略。
+  // 仅 `hide_spawn_agent_metadata = false` 时出现。新代理的服务层级覆盖项。
   service_tier?: string;
 }): Promise<{
   // 被派生代理的 thread 标识。
@@ -855,6 +980,7 @@ declare const tools: { multi_agent_v1__spawn_agent(args: {
 #### `multi_agent_v1__wait_agent`
 
 > 等待代理进入终态。completed 状态里可能带上代理的最终消息。超时时返回空的 status。
+> 代理到达终态时，还会收到一条包含同一 completed 状态的通知消息。
 
 ```ts
 declare const tools: { multi_agent_v1__wait_agent(args: {
@@ -871,6 +997,8 @@ declare const tools: { multi_agent_v1__wait_agent(args: {
 ```
 
 **一次等多个是陷阱**：它会反复返回最先完成的那个。所以收 N 个结果需要 N 次单目标等待，这正是 `collectAll` 在 v1 分支写成串行 for 循环的原因。
+
+schema 把 `status` 定义为按 agent id 索引。当前 v1 没有 `agent_path`，因此实际返回的 key 恰好等于 `agent_id`；这是当前实现的巧合，不应当作跨版本契约。
 
 #### `multi_agent_v1__send_input`
 
@@ -933,26 +1061,35 @@ declare const tools: { multi_agent_v1__close_agent(args: {
 > 那么该代理的规范任务名就是 `/root/task1/task_3`。
 > 被派生的代理会拥有和你一样的工具，也能派生它自己的子代理。
 > 传 `fork_turns="none"` 不会把任何周边上下文传给子代理；`fork_turns="all"` 会全部提供。
+> §2.5 的跨后端 helper 固定传 `fork_turns="none"`；需要继承时直接调用这里的原生 v2 API。
 
 ```ts
 declare const tools: { collaboration__spawn_agent(args: {
+  // 仅宿主构建/角色配置暴露该覆盖项时出现；显式覆盖时 fork_turns 不能用 all。
+  agent_type?: string;
   // 可选的 fork 轮数。默认 `all`。可用 `none`、`all`，或像 `3` 这样的正整数字符串。
   fork_turns?: string;
   // 给新代理的初始纯文本任务。
   message: string;
-  // 新代理的模型覆盖项。除非确需显式覆盖，否则省略。
+  // 仅 `expose_spawn_agent_model_overrides` 开启时出现。除非确需显式覆盖，否则省略。
   model?: string;
-  // 新代理的推理强度覆盖项。省略则继承父级的推理强度。
+  // 仅 `expose_spawn_agent_model_overrides` 开启时出现。省略则继承父级的推理强度。
   reasoning_effort?: string;
+  // 仅 `hide_spawn_agent_metadata = false` 时出现。
+  service_tier?: string;
   // 新代理的任务名。只使用小写字母、数字和下划线。
   task_name: string;
 }): Promise<{
   // 被派生代理的规范任务名。
   task_name: string;
+  // 仅 `hide_spawn_agent_metadata = false` 时返回；隐藏 metadata 时返回值只有 task_name。
+  nickname?: string | null;
 }>; };
 ```
 
 **返回的 `task_name` 已经是全限定路径**（形如 `/root/scan_0`）。再拼一次前缀去和 `list_agents` 比对，结果是全部 agent 完成、一个都收不到，而且不报任何错，只是超时后返回一堆 `null`。这也是 `collectAll` 的 v2 分支用 `endsWith` 匹配的原因。
+
+`task_name` 只允许小写字母、数字和下划线，而且同一个父任务下的 sibling 名必须唯一。§2.5 的 prelude 首次使用清洗后的 `${base}_${seq}` 稳定名；只有宿主返回 `already exists` 后，回退名才追加当前 cell 的小写时间 nonce、后续序号与 attempt。nonce 不承诺绝对随机；总共尝试 3 次（最多重试 2 次），其他错误立即抛出。
 
 另外注意这里的参数结构会拒绝未知字段：自作主张塞一个不存在的参数会直接抛异常。
 
@@ -1058,7 +1195,9 @@ declare const tools: { list_mcp_resources(args: {
 
 ```ts
 declare const tools: { list_mcp_resource_templates(args: {
+  // 上一次调用返回的不透明游标；取第一页时省略。
   cursor?: string;
+  // MCP server 名称。省略则列出所有已配置 server 的资源模板。
   server?: string;
 }): Promise<unknown>; };
 ```
