@@ -1,12 +1,12 @@
 # 工作原理
 
-本篇只讲会影响写法的机制。内核如何实现这条通道不在范围内。
+本篇只讲会影响写法的机制。
 
 ---
 
-## 1. 两条工具投送路径
+## 1. 三种工具投送形态
 
-codex 把工具送到调用方手里有两条完全不同的路径，取决于模型跑在哪种模式。
+codex 如何把工具送到模型手里，取决于模型运行形态。
 
 ### Direct 模式
 
@@ -14,9 +14,13 @@ codex 把工具送到调用方手里有两条完全不同的路径，取决于�
 
 调 10 个工具就是 10 次采样、10 份原始输出进入上下文。
 
-### Code mode
+### ordinary CodeMode
 
-模型只拿到一个叫 `exec` 的工具。所有实际执行的工具被折叠进这个工具的说明文本里，每个各渲染出一段 TypeScript 声明，形状见《07-api-reference.md》§4。程序里按普通异步函数调用它们：
+fallback 模型显式打开 `[features.code_mode]` 后进入 ordinary CodeMode。模型仍看到原来的直接工具，另外多一个 `exec`；`exec` 不展开 nested per-tool declarations，也不附共享 MCP 类型块，但存在 `Deferred` nested tools 时，会在运行时基础说明后附通用的 `ALL_TOOLS` 查询提示。
+
+### CodeModeOnly
+
+`gpt-5.6-luna` / `sol` / `terra` 的模型元数据会进入 CodeModeOnly。可进入 code mode 的 nested tools 被折叠进 `exec`，其说明只展开非 `Deferred` 工具的 per-tool declarations，存在 MCP 时再附一次共享 MCP 类型块；存在 `Deferred` 时，正文只提供查 `ALL_TOOLS` 的提示。code-mode `wait` 与 `DirectModelOnly` 工具仍独立对模型可见，不受折叠。两种 CodeMode 的程序调用语法相同：
 
 ```js
 const r = await tools.exec_command({ cmd: "ls -la" });
@@ -26,15 +30,13 @@ const r = await tools.exec_command({ cmd: "ls -la" });
 
 ### 差别在哪
 
-| | direct | code mode |
-| --- | --- | --- |
-| 编排循环在哪 | 模型的推理里 | V8 程序里 |
-| 采样次数 | O(工具调用次数) | O(1) |
-| 上下文压力 | O(工具调用次数)——每份原始输出都进 | O(主动 `text()` 出来的量) |
-
-> 这三行的根都在第一行——那个循环由谁执行。后两行是它的直接后果：循环在模型那边，就是一次工具调用一次采样，每份原始输出也都进了上下文。
->
-> 工具声明被折进 `exec` 的 description，是因为模型手上只剩 `exec` 这一个工具，别的工具没有别的地方可以声明。工具契约本身没有被重新设计。
+| | Direct | ordinary CodeMode | CodeModeOnly |
+| --- | --- | --- | --- |
+| 模型侧工具面 | 各个直接工具 | 直接工具 + `exec` | `exec` + 独立的 `wait` / `DirectModelOnly` 工具 |
+| `exec` 说明 | — | 运行时基础说明；有 `Deferred` 时提示查 `ALL_TOOLS`；不展开 declarations 或共享 MCP 类型 | 非 `Deferred` nested declarations；有 MCP 时附共享类型块；有 `Deferred` 时提示查 `ALL_TOOLS` |
+| `exec` 内的编排循环 | — | V8 程序 | V8 程序 |
+| 一次 `exec` 的采样次数 | — | O(1) | O(1) |
+| 模型调用 `exec` 时的上下文压力 | — | O(主动交给模型的输出总量) | O(主动交给模型的输出总量) |
 
 看一个具体对比：
 
@@ -45,8 +47,7 @@ const r = await tools.exec_command({ cmd: "ls -la" });
 const listed = await tools.exec_command({ cmd: "ls -d */" });
 const dirs = listed.output.split("\n").filter(Boolean);
 
-// ② 第 2..N+1 次：每个目录数一次 .rs 文件个数
-//    .map 只造出 N 个 Promise，中间没有 await，所以 N 个请求是一起发出去的
+// ② 第 2..N+1 次：并发统计每个目录的 .rs 文件数
 const counts = await Promise.all(
   dirs.map((d) => tools.exec_command({ cmd: `find ${d} -name '*.rs' | wc -l` })),
 );
@@ -74,7 +75,7 @@ thread/codeMode/exec   { threadId, package }  →  { output }
 
 **①** 编排全程零模型调用。程序不是模型写的，是客户端直接提交的。模型只出现在被派出去的子 agent 内部，它们是被程序调用的对象，不是控制者。
 
-**②** 模型侧有的能力，程序侧不一定有。这个入口只提供"提交"这一件事。最典型的是续跑：模型可以让一个中途让出的 cell 接着跑，程序没有对应的手段。详见《08-limits.md》文档。
+**②** 模型侧有的能力，程序侧不一定有。这个入口只提供"提交"这一件事。最典型的是续跑：模型可以让一个中途让出的 cell 接着跑，程序没有对应的手段。
 
 **③** 工具面在 cell 起跑前就定死了。包申报的 server 必须在捕获工具面之前起完，起不来直接拒跑，而不是少个工具照跑。所以 `ALL_TOOLS` 在程序里读一次就够，它在这次运行中不会再变。
 
@@ -90,8 +91,6 @@ thread/codeMode/exec   { threadId, package }  →  { output }
 - 失败 → reject 它
 
 JS 那边的 `await` 在此时恢复。
-
-分发路径同源，但有一步在 cell 里走不通：判定需要审批时，宿主要去请一次回执，而回执必须登记在一次模型回合上。cell 从不建立回合，那个 Promise 既不 resolve 也不 reject，永远停在这里。所以"与模型同一条路"止于策略判定这一步，见 §4 末尾与《08-limits.md》§3。
 
 ### 两个推论
 
@@ -161,7 +160,7 @@ agent 本身是并发的。三个同时在 sleep，总耗时约 12 秒而不是 
 
 这条路不需要宿主配合：包自带的 stdio server 走同一条判据，但只满足得了后半条——包起的 server 那份配置里 `supports_parallel_tool_calls` 固定为 `false`，服务器级的整体豁免用不了，只能逐个工具标 `readOnlyHint`。
 
-标注缺失还有一个比并行更严重的独立后果：工具会被判定为需要审批，而审批在 cell 里是一个不可恢复的挂死（原因见《08-limits.md》§3）。审批的判据与这里不是同一条——它多一道 `destructiveHint === true` 的短路，所以 `{readOnlyHint: true, destructiveHint: true}` 这种组合并行安全但仍要审批。三个标注要一起写，理由见《10-packaging.md》§4.2。
+并行与审批使用不同判据；包内 MCP 的标注规则见《08-packaging.md》§4.2。
 
 ---
 
@@ -180,25 +179,27 @@ agent 本身是并发的。三个同时在 sleep，总耗时约 12 秒而不是 
 
 第 3 道按种类筛，与曝光度无关。`tool_search` 的曝光度看起来是允许的，但它由客户端执行，所以 PoA 依然调不到。
 
-### 一档特殊状态：能调用，但拿不到形状
+### 一档特殊状态：不进 CodeModeOnly 的 `exec` 正文，但运行时仍能查形状
 
-有一档曝光度叫 `Deferred`：工具能调通、名字也出现在 `ALL_TOOLS` 里，但它的声明不会出现在工具说明文本中。
+有一档曝光度叫 `Deferred`：工具能调通、名字也出现在 `ALL_TOOLS` 里，但它的声明不会进入 CodeModeOnly 模型看到的 `exec` 说明正文。
 
 v1 那 5 个子 agent 工具的默认状态就是这一档。
 
-由此带来的影响：`ALL_TOOLS` 能表明它在，但表明不了怎么调。参数字段只能查文档，这是《07-api-reference.md》存在的理由。
+这不妨碍程序在运行时检查形状：无论是 ordinary CodeMode 还是 CodeModeOnly，`ALL_TOOLS` 中每个条目的 `description` 都内嵌完整的 per-tool exec TypeScript 声明，包括该工具的入参、必填性与返回声明。
 
-### `ALL_TOOLS` 只有名字和描述
+普通工具的声明可独立阅读。MCP 工具的返回声明会引用 `CallToolResult`、`ContentBlock`、`MetaObject` 等共享别名；CodeModeOnly 的 `exec` 说明会附一次共享类型块，ordinary CodeMode 不会，因此后者需查《07-api-reference.md》§3.4 的离线定义。
+
+### `ALL_TOOLS` 的 `description` 带完整声明
 
 ```js
-ALL_TOOLS  // → [{ name: "exec_command", description: "..." }, ...]
+const execTool = ALL_TOOLS.find((tool) => tool.name === "exec_command");
+if (!execTool) throw new Error("exec_command is unavailable");
+text(execTool.description); // 内含 declare const tools: { exec_command(...): ... }
 ```
 
-没有参数 schema。程序在运行时读不到任何工具的入参形状。
+《07-api-reference.md》§4 的价值是提供离线可查的中文版和实测坑位注解，不是填补运行时拿不到 schema 的缺口。
 
-这是当前的一处能力缺口。《07-api-reference.md》是它的离线替代品，但那是查表，不是运行时能力。
-
-写程序时不要硬编码工具名。开头读一次 `ALL_TOOLS` 判断在不在，对缺席路径写降级：
+即便能读声明，也仍要在运行时先检查工具是否存在，并为缺席路径降级：
 
 ```js
 const has = new Set(ALL_TOOLS.map((t) => t.name));
@@ -231,6 +232,6 @@ if (!has.has("web__run")) { /* 走降级路径 */ }
 | 一次提交 = 一个 cell = 一次跑完 | 整个流程写在同一段代码里；未 `await` 的活会消失 |
 | 工具调用往返宿主，失败表现为异常 | 可以 `try/catch` 兜住单点失败 |
 | 等待调用默认串行 | "全派出去 → 一次 join"，不要设计成流水线 |
-| `ALL_TOOLS` 没有 schema | 参数查文档；工具名不要硬编码，先探测再降级 |
+| `ALL_TOOLS` 的 `description` 内嵌完整 per-tool 声明 | 可在运行时查参数与返回；MCP 共享别名从 CodeModeOnly 的 `exec` 共享块或《07-api-reference.md》§3.4 查；仍要探测工具是否存在 |
 | 只有 `text()` 可靠 | 进度信息攒成数组，最后一次性交出去 |
 | 没有续跑手段 | 长任务靠调大 `yield_time_ms`，不靠 yield |

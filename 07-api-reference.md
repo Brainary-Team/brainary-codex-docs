@@ -5,7 +5,7 @@
 | 类别 | 来源 | 数量 |
 | --- | --- | --- |
 | [全局 primitive](#1-全局-primitive12-个) | codex 内置，直接调用 | 12（不含全局对象 `tools` 本身） |
-| [prelude primitive](#2-prelude-primitive16-个) | 不是内置的，是一层普通 JS 封装。用之前要把 [§2.5](#25-prelude-全文) 的全文抄进程序 | 16 |
+| [prelude primitive](#2-prelude-primitive16-个) | 不是内置的，是一层普通 JS 封装。用之前要把 [§2.4](#24-prelude-全文) 的全文抄进程序 | 16 |
 | [内置工具](#3-内置工具) | codex 内置，挂在 `tools` 上 | 30 + MCP + provider 相关 |
 
 ---
@@ -29,7 +29,7 @@
 
 ## 2. prelude primitive（16 个）
 
-> **这 16 个不是内置的。** 它们是一层普通 JavaScript 封装，全文在 [§2.5](#25-prelude-全文)（341 行）。
+> **这 16 个不是内置的。** 它们是一层普通 JavaScript 封装，全文在 [§2.4](#24-prelude-全文)（341 行）。
 >
 > 存放的位置：首行 pragma 之后。
 
@@ -48,7 +48,7 @@
 
 | 名字 | 签名 | 干什么 | 要注意 |
 | --- | --- | --- | --- |
-| `shellLines` | `shellLines(cmd, { validate = null })` | 跑一条 shell 命令，把输出按行拿回来：逐行 trim、丢掉空行 | `validate` 几乎必传。shell 出错时报错信息和正常输出走同一个通道。`exec_command` 默认约 10 秒就让出；长命令可能只返回 `session_id`，而当前封装只取这次的 `output`、不会续接，后续输出会丢失 |
+| `shellLines` | `shellLines(cmd, { validate = null })` | 跑一条 shell 命令，把输出按行拿回来：逐行 trim、丢掉空行 | `validate` 几乎必传。命令非零退出不会自动抛错，当前封装也不检查 `exit_code`；诊断文本与正常输出走同一个通道。`exec_command` 默认约 10 秒就让出；长命令可能只返回 `session_id`，而当前封装只取这次的 `output`、不会续接，后续输出会丢失 |
 | `parseJsonReply` | `parseJsonReply(raw)` | 从自由文本里抠 JSON，返回 `{ value, error }` | 匹配是贪婪的：取第一个 `{` 到最后一个 `}` 的整段。回复里出现两段 `{}` 时整体解析失败，不会退回第一段——详见下方 WARNING。三种失败各有不同 `error` 文案：不是字符串 / 没找到 `{}` / 解析异常。永远处理 error 分支 |
 | `mapLimit` | `mapLimit(items, limit, fn)` | 限流并发 map，最多 `limit` 个同时在飞，结果保持输入顺序 | 非正 `limit` 按 1 处理；空输入仍启动 0 个 worker。`runBatch` / `spawnMany` 内部就是用它限流的 |
 | `SAFE_NAME` | 常量 `/^[A-Za-z0-9._-]+$/` | 现成的白名单正则，配合 `validate` 用 | 只放行字母数字和 `. _ -`，带空格、斜杠、中文的路径会被一并滤掉 |
@@ -486,7 +486,7 @@ async function timed(fn) {
 
 #### 子代理 v2（6）
 
-> 下表与 §4 的 `collaboration__*` 名称是默认 namespace 的静态快照，不是可执行代码应依赖的固定前缀。程序应按 §2.5 的方式从 `ALL_TOOLS` 找到带 `task_name` / `fork_turns` 的 `*spawn_agent`，再验证并保存同前缀的实际工具名。
+> 下表与 §4 的 `collaboration__*` 名称是默认 namespace 的静态快照，不是可执行代码应依赖的固定前缀。程序应按 §2.4 的方式从 `ALL_TOOLS` 找到带 `task_name` / `fork_turns` 的 `*spawn_agent`，再验证并保存同前缀的实际工具名。
 
 | 工具 | 作用 | 默认可得 |
 | --- | --- | --- |
@@ -538,6 +538,18 @@ const r = await tools[echo]({ text: "hi" });
 | `web__run` | 联网搜索。`supports_parallel_tool_calls` 为真，是少数几个能让并行派发真正并行的工具 | provider 是 OpenAI 系或显式声明支持独立 web search |
 | `skills__list` / `skills__read` | 列举与读取 skill | orchestrator skill provider 可用 |
 | `image_gen__imagegen` | 生成图片 | provider 能力位与 feature 同时为真 |
+
+`web__run` 的完整声明由扩展在运行时提供，不在 §4 的静态快照中。先确认它在 `ALL_TOOLS` 中，并从对应条目的 `description` 读取当前参数声明。最小搜索形状如下：
+
+```js
+const web = ALL_TOOLS.find((tool) => tool.name === "web__run");
+if (!web) throw new Error("web__run is unavailable");
+const result = await tools.web__run({
+  search_query: [{ q: "standalone web search" }],
+  response_length: "short",
+});
+text(typeof result === "string" ? result : JSON.stringify(result));
+```
 
 ### 3.3 PoA 拿不到的
 
@@ -682,6 +694,8 @@ declare const tools: { exec_command(args: {
 ```
 
 返回的是对象，不是字符串，要拿命令的 stdout 得取 `.output`。另外注意它自己也有一个 `yield_time_ms`（默认 10 秒）：到点时进程仍在运行的，返回的是被截断的中途输出加一个 `session_id`，跑得久的命令要显式调大。
+
+工具分发失败时 Promise 会 reject；命令本身以非零状态退出通常仍会正常 resolve，失败信息在 `exit_code` 和 `output` 中。可靠调用必须同时处理 `catch`、`exit_code !== 0` 和非空 `session_id`，不能只包一层 `try/catch`。
 
 #### `write_stdin`
 
@@ -877,6 +891,8 @@ declare const tools: { request_permissions(args: {
 }): Promise<unknown>; };
 ```
 
+这不是任意问答入口，不能代替 `request_user_input`。它只申请结构化权限：`approval_policy = "never"` 时立即返回空权限集合，不会向用户弹出请求；允许审批的策略下，宿主把权限事件交给外部客户端并等待答复。因此只有确定客户端会处理该事件时，PoA 才能依赖它获得额外权限。
+
 ### 时间
 
 #### `clock__curr_time`
@@ -931,7 +947,7 @@ declare const tools: { memories__add_ad_hoc_note(args: {
 
 ### 子代理 v1
 
-使用 §2.5 那一层时通常不用直接碰这一组。列在这里有两个用处：读实现时对上号，以及需要它没封装的能力（如 `resume_agent`、`interrupt_agent`）时知道去调什么。纯内置版本见《05-writing.md》§12.2。
+使用 §2.4 那一层时通常不用直接碰这一组。列在这里有两个用处：读实现时对上号，以及需要它没封装的能力（如 `resume_agent`、`interrupt_agent`）时知道去调什么。纯内置版本见《05-writing.md》§12.2。
 
 #### `multi_agent_v1__spawn_agent`
 
@@ -1061,7 +1077,7 @@ declare const tools: { multi_agent_v1__close_agent(args: {
 > 那么该代理的规范任务名就是 `/root/task1/task_3`。
 > 被派生的代理会拥有和你一样的工具，也能派生它自己的子代理。
 > 传 `fork_turns="none"` 不会把任何周边上下文传给子代理；`fork_turns="all"` 会全部提供。
-> §2.5 的跨后端 helper 固定传 `fork_turns="none"`；需要继承时直接调用这里的原生 v2 API。
+> §2.4 的跨后端 helper 固定传 `fork_turns="none"`；需要继承时直接调用这里的原生 v2 API。
 
 ```ts
 declare const tools: { collaboration__spawn_agent(args: {
@@ -1089,7 +1105,7 @@ declare const tools: { collaboration__spawn_agent(args: {
 
 **返回的 `task_name` 已经是全限定路径**（形如 `/root/scan_0`）。再拼一次前缀去和 `list_agents` 比对，结果是全部 agent 完成、一个都收不到，而且不报任何错，只是超时后返回一堆 `null`。这也是 `collectAll` 的 v2 分支用 `endsWith` 匹配的原因。
 
-`task_name` 只允许小写字母、数字和下划线，而且同一个父任务下的 sibling 名必须唯一。§2.5 的 prelude 首次使用清洗后的 `${base}_${seq}` 稳定名；只有宿主返回 `already exists` 后，回退名才追加当前 cell 的小写时间 nonce、后续序号与 attempt。nonce 不承诺绝对随机；总共尝试 3 次（最多重试 2 次），其他错误立即抛出。
+`task_name` 只允许小写字母、数字和下划线，而且同一个父任务下的 sibling 名必须唯一。§2.4 的 prelude 首次使用清洗后的 `${base}_${seq}` 稳定名；只有宿主返回 `already exists` 后，回退名才追加当前 cell 的小写时间 nonce、后续序号与 attempt。nonce 不承诺绝对随机；总共尝试 3 次（最多重试 2 次），其他错误立即抛出。
 
 另外注意这里的参数结构会拒绝未知字段：自作主张塞一个不存在的参数会直接抛异常。
 

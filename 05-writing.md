@@ -1,26 +1,26 @@
 # 编写指南
 
-本篇讲从一个空文件开始写出一个新程序的完整动线。
+本篇讲从一个空文件开始写出一个新 PoA 程序的完整路线。
 
 ## 前置条件
 
 | 事项 | 当前状态 |
 | --- | --- |
-| 后端是 v1 还是 v2 | 由模型元数据决定，程序改不了。它决定并发名额（§6.3）和有没有递归深度限制（§6.4） |
-| 用不用 prelude 那一层 | 那 16 个 primitive 不是内置的，要把《07-api-reference.md》§2.5 抄进程序才有。抄与不抄的两版范例见 §12 |
-| 程序能不能中途问人 | 不能。整条链路上没有人，需要人判断的地方只能写成代码 |
-| 程序失控时如何处理 | 只能杀进程。没有取消，也没有续跑，所以调试期把规模压到 1（§9） |
+| 后端是 v1 还是 v2 | 默认由模型元数据决定；本地 `[features.multi_agent_v2]` 可强制 v2，但不能强制回 v1 |
+| 用不用 prelude 那一层 | 来源与使用规则见《03-concepts.md》§2；prelude 版与纯内置版范例见 §12 |
+| 程序能不能中途问人 | 不能 |
+| 程序失控时如何处理 | 只能杀进程。没有取消，也没有续跑 |
 
 ---
 
-## 0. 一个 PoA 程序的五段形状
+## 0. 一个 PoA 程序的六段形状
 
 PoA 程序的基本骨架如下：
 
 ```js
 // @exec: {...}                        ① 配置，必须在第 1 行
 
-const MAX_ITEMS = 3;                    ② 规模常量提到顶部，方便调试时压到 1
+const MAX_ITEMS = 3;                    ② 规模常量提到顶部
 const CONCURRENCY = 3;
 
 requireAgents();                        ③ 前置断言：无后端时立即失败
@@ -38,16 +38,14 @@ text(JSON.stringify(...));              ⑥ 收口并交出结果
 // @exec: {"yield_time_ms": 900000, "max_output_tokens": 30000}
 ```
 
-必须在第 1 行。两个字段的默认值都只有 10000（10 秒 / 10000 token），派了 agent 的程序必须调大 `yield_time_ms`。
+必须在第 1 行。两个字段的默认值都只有 10000（10 秒 / 10000 token）。
 
 | 字段 | 计量的是什么 | 默认 |
 | --- | --- | --- |
 | `yield_time_ms` | 本次运行在脚本仍未跑完时提前交还之前，最多等多久 | 10000 ms |
 | `max_output_tokens` | 本次运行返回值的 token 预算，即 `text()` 累积下来准备交回的那份内容 | 10000 |
 
-这两个数管的都是"这一次运行"，不是"每个子 agent"，也不是"所有子 agent 的消耗总和"。子 agent 自己烧掉多少 token，这里一概不管，那走的是各自的回合，有各自的上下文窗口。
-
-并行派发之所以必须调大，是因为另外两件事：整个扇出必须在这一次运行的 `yield_time_ms` 内跑完（没有续跑手段）；N 份摘要最后合成一个返回值，一起挤在同一份 `max_output_tokens` 里。
+这两个数管的都是"这一次 PoA 运行"，不是"每个子 agent"，也不是"所有子 agent 的消耗总和"。
 
 ---
 
@@ -79,7 +77,7 @@ log.push(`backend=${AGENT_BACKEND} items=${items.length}`);
 text(JSON.stringify({ result, log, elapsed_ms: Date.now() - t0 }, null, 2));
 ```
 
-`yield_control()` 同样不能当"流式输出"用。它把已累积的输出交出去之后脚本还在跑，但没有配套的手段去接后半段。长程序的正解是把 `yield_time_ms` 调大。
+`yield_control()` 不能用来分段交付 PoA 的最终结果。长程序应调大 `yield_time_ms`。
 
 ---
 
@@ -187,6 +185,10 @@ const batch = await runBatch(
 
 `runBatch` 是"按并发度派出去 + 等全部到终态"的合并写法，返回 `[{ handle, reply }]`，顺序与输入一致。
 
+v2 的原生 `task_name` 只允许小写字母、数字和下划线，而且同一个父任务下的 sibling 名必须唯一。prelude 首次使用清洗后的 `${base}_${seq}` 稳定名；仅遇到 `already exists` 后，回退名才追加当前 cell 的小写时间 nonce。总共尝试 3 次（最多重试 2 次），nonce 不承诺绝对随机，其他错误也不会被吞掉。
+
+为与 v1 默认不 fork 的语义一致，prelude 和本篇纯内置 helper 的 v2 派发都显式传 `fork_turns: "none"`，默认不继承父线程历史。需要继承时直接调用从 `ALL_TOOLS` 发现的原生 v2 `spawn_agent` 并显式选择 `fork_turns`；本次 helper API 不跨后端扩展这个参数。
+
 ### 6.1 在 `meta` 里记下"谁是谁"
 
 派出一个子 agent，拿到的是一个 handle：
@@ -198,7 +200,7 @@ const batch = await runBatch(
 | 字段 | 是什么 |
 | --- | --- |
 | `key` | 后端认的标识，后续等待 / 追问 / 关闭都靠它 |
-| `label` | 面向人的名字（v1 下是自动起的昵称） |
+| `label` | 宿主分配的面向人昵称或任务名，不是模型自己起的名字 |
 | `meta` | 留给调用方塞上下文的口袋。prelude 不解释它，只负责原样带回来 |
 
 `meta` 不是可选项。agent 的终稿文本里不包含"我是谁"，程序必须自己记，收口时靠 `handle.meta.folder` 这类字段把结果对回输入。写包时没有 handle 这层封装，`spawn` 只返回一个 key，对应关系要自己用数组下标维持，见 §12 的包版范例。
@@ -207,7 +209,7 @@ const batch = await runBatch(
 
 限的是同时在途的派发调用数，不是同时运行的 agent 数。派发一返回，worker 就去派下一个，已派出的 agent 全都还在跑。
 
-因此 `concurrency` 守不住名额：它既不影响一次运行累计派出的 agent 数，也不影响同时驻留的 agent 数。名额要靠 §6.3 的分批结构来守。
+因此 `concurrency` 守不住名额：它既不影响 v1 同时在册的 agent 数，也不影响 v2 同时驻留的 agent 数。名额要靠 §6.3 的分批结构来守。
 
 ### 6.3 名额：两代语义不同，且都会决定程序结构
 
@@ -215,9 +217,9 @@ const batch = await runBatch(
 
 | | v1 | v2 |
 | --- | --- | --- |
-| 上限计的是什么 | 一次运行里累计派出的 agent 数 | 同时驻留的 agent 数 |
+| 上限计的是什么 | 同时在册的 agent 数（已完成但未 `close` 的仍在册） | 同时驻留的 agent 数 |
 | 默认上限 | 6，root 不占名额 | 配置值减 1（root 占一个）：默认 4 → 3 |
-| 跑完的 agent 释放名额吗 | 不释放，必须显式 `closeAll` | 会被自动驱逐让位 |
+| 跑完的 agent 释放名额吗 | 不释放，必须显式 `closeAll` | 需要腾名额时可自动驱逐 |
 | 超限时 | 派发抛异常 | 派发抛异常，另有一种静默后果，见下 |
 
 配置里把 `max_concurrent_threads_per_session` 写成 8，可用数就是 7。
@@ -242,7 +244,7 @@ for (let i = 0; i < items.length; i += BATCH) {
 
 #### v2：收齐之后才能派下一批
 
-驻留位满时，宿主会驱逐一个已完成的 agent 来腾位置。被驱逐的 agent 从 `list_agents` 里消失，而 v2 的收口正是靠 `list_agents` 读状态和答复，于是那个结果被填成 `null`——不抛异常、不打警告。`runBatch` 是"先全部派完，再一次收齐"，一旦在派发阶段触发驱逐，先完成的那几个结果就再也拿不回来了。
+`runBatch` 是"先全部派完，再一次收齐"。v2 在派发阶段腾驻留位时，较早完成的结果可能因自动驱逐在收口前消失，并被填成 `null`。
 
 所以 v2 下分批不是为了争名额，是为了在驱逐发生之前把结果读走：
 
@@ -255,7 +257,7 @@ for (let i = 0; i < items.length; i += BATCH) {
 
 条目数在名额以内时两代都可以一次派完，`closeAll` 放在最后。
 
-> 上表里"减不减 root""释不释放"是算法，不会变；6 和 4 是配置默认值，宿主改了就不是这个数。当前实际能开几个，以自己那份 `config.toml` 为准。
+> 上表里"减不减 root""释不释放"是当前实现规则；6 和 4 是当前配置默认值，宿主改了就不是这个数。当前实际能开几个，以自己那份 `config.toml` 为准。
 
 ### 6.4 v2 下自行实现递归深度限制
 
@@ -266,13 +268,11 @@ for (let i = 0; i < items.length; i += BATCH) {
 | v1 | 深度上限默认为 1，且拦两道——超限的子 agent 在 JS 里根本看不到那组工具，即便看到运行时也会再拦一次。递归会自己停 |
 | v2 | 两道都没有，无条件放行 |
 
-v2 下的限制只能在 JS 里自行实现：传一个深度计数进 `message`，或只在顶层派发。后端是 v1 还是 v2 不由本地配置决定，由模型元数据决定。完整说明见《08-limits.md》§9。
+v2 下的限制只能在 JS 里自行实现：传一个深度计数进 `message`，或只在顶层派发。后端默认由模型元数据决定；本地 `[features.multi_agent_v2]` 可强制 v2，但不能强制回 v1；程序 cell 启动后不能改变。
 
-### 6.5 不要设计成流水线
+### 6.5 收口顺序
 
-`Promise.race` 拿不到最先完成的那个，程序侧的等待调用是串行的（机制见《04-how-it-works.md》§4）。
-
-按"全部派出去 → 一次 join → 统一收口"来组织。
+收口顺序的边界统一见《04-how-it-works.md》§4，本篇不重复展开。
 
 ---
 
@@ -294,7 +294,7 @@ const results = batch.map(({ handle, reply }) => {
 
 它的匹配是贪婪的，从第一个 `{` 吃到最后一个 `}`。所以 agent 只要在正式答案前把 [§5](#5-写子-agent-的任务文字) 那段格式模板复述一遍，两段 `{}` 会被连成一整块，整体解析失败，而不是退回第一段。这就是 §5 那句 `不要复述格式说明` 要写进 prompt 的原因。
 
-`reply` 是 `null` 和是空字符串不是一回事。`null` 有三个来源：超时未达终态、agent 正常结束但没给终稿、v2 下结果在收口前被驱逐（§6.3）。三者都要当失败处理，但排查方向不同：第一种调 `timeoutMs`，第二种调 prompt，第三种要改分批结构。
+`reply` 是 `null` 和是空字符串不是一回事。`null` 有四个来源：超时未达终态、agent 正常结束但没给终稿、agent 以 `{ errored }` 到达终态、v2 下结果在收口前被驱逐（§6.3）。四种都要当失败处理，但排查方向不同：第一种调 `timeoutMs`，第二种调 prompt；第三种的具体错误没有保留在 prelude 的 `reply` 中，需要直接查看原生 agent 状态；第四种要改分批结构。
 
 `runBatch` / `collectAll` 的 `timeoutMs` 默认 300000 ms。v1 的收口是逐个 handle 串行等待的，每个都可能等满这个值，所以极端情况下总耗时是 N × `timeoutMs`——它必须留在首行 pragma 的 `yield_time_ms` 之内。调试期把 `yield_time_ms` 压到 60000 时，`timeoutMs` 要跟着一起压。
 
@@ -392,7 +392,7 @@ try {
 
 ## 12. 完整范例
 
-同一个程序两种写法。骨架完全一样，差别只在有没有把 prelude 那一层抄进来。
+同一个程序有 prelude 版与纯内置版，骨架完全一样。
 
 两版共用同一个包目录和同一份 manifest：
 
@@ -413,9 +413,9 @@ entry = "main.js"
 
 没有 `[[capabilities.mcp]]`，因为这个程序不需要自带能力。
 
-### 12.1 抄了 prelude
+### 12.1 使用 prelude
 
-`main.js` 的顺序是：首行 pragma → 《07-api-reference.md》§2.5 全文 → 下面这段。
+`main.js` 的顺序是：首行 pragma → [《07 API 参考》§2.4](07-api-reference.md#24-prelude-全文)全文 → 下面这段。
 
 ```js
 // @exec: {"yield_time_ms": 900000, "max_output_tokens": 30000}
@@ -457,7 +457,7 @@ try {
       name: `scan_${i}`,
       meta: { folder },
     })),
-    { concurrency: CONCURRENCY },
+    { concurrency: CONCURRENCY, timeoutMs: 240000 },
   );
 
   // ④ 防御性收口，失败留原文
@@ -487,23 +487,56 @@ try {
 }
 ```
 
+这里显式把 `timeoutMs` 设为 240000。v1 会串行等待 3 个目标，最坏是 `3 × 240000 = 720000` ms，给首行的 `yield_time_ms: 900000` 留出 180000 ms 余量。
+
 ```bash
-codex exec --poa ./my-poa -C /path/to/target
+~/codex-poa/codex exec --poa ./my-poa -C /path/to/target
 ```
 
-### 12.2 不抄 prelude，只用内置 primitive
+### 12.2 只用内置 primitive
 
 同一份 manifest，`main.js` 自带一段最小替代：
 
 ```js
 // @exec: {"yield_time_ms": 900000, "max_output_tokens": 30000}
 
-// ===== 不抄 prelude，这一段是自带的最小替代（63 行）=====
+// ===== 纯内置版：自带最小替代（133 行）=====
 
 const _NAMES = new Set(ALL_TOOLS.map((t) => t.name));
-const BACKEND = _NAMES.has("multi_agent_v1__spawn_agent") ? "v1"
-  : _NAMES.has("collaboration__spawn_agent") ? "v2" : null;
+const _V2_TOOLS = (() => {
+  const spawn = ALL_TOOLS.find((t) =>
+    t.name.endsWith("spawn_agent") &&
+    String(t.description).includes("task_name") &&
+    String(t.description).includes("fork_turns"));
+  if (!spawn) return null;
+  const prefix = spawn.name.slice(0, -"spawn_agent".length);
+  const names = Object.fromEntries(
+    ["spawn_agent", "wait_agent", "list_agents", "followup_task"]
+      .map((key) => [key, `${prefix}${key}`]),
+  );
+  return Object.values(names).every((name) => _NAMES.has(name)) ? names : null;
+})();
+const BACKEND = _NAMES.has("multi_agent_v1__spawn_agent") ? "v1" : _V2_TOOLS ? "v2" : null;
+let agentSeq = 0;
 
+function _readV2WaitLimits() {
+  const description =
+    ALL_TOOLS.find((t) => t.name === _V2_TOOLS?.wait_agent)?.description || "";
+  const min = Number(description.match(/\bmin(?:imum)?\b[^0-9]{0,24}(\d+)/i)?.[1]);
+  const max = Number(description.match(/\bmax(?:imum)?\b[^0-9]{0,24}(\d+)/i)?.[1]);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min < 0 || max < min) {
+    return { min: 10000, max: 3600000 };
+  }
+  return { min, max };
+}
+
+const _V2_WAIT_LIMITS = _readV2WaitLimits();
+const _clampV2WaitMs = (ms) =>
+  Math.min(_V2_WAIT_LIMITS.max, Math.max(_V2_WAIT_LIMITS.min, ms));
+const _agentNonce = Date.now().toString(36);
+const _SPAWN_ATTEMPTS = 3;
+
+// 非正 limit 按 1 处理；空输入仍启动 0 个 worker。
 async function mapLimit(items, limit, fn) {
   const out = new Array(items.length);
   let next = 0;
@@ -514,7 +547,9 @@ async function mapLimit(items, limit, fn) {
       out[i] = await fn(items[i], i);
     }
   };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  await Promise.all(
+    Array.from({ length: Math.min(Math.max(1, limit), items.length) }, worker),
+  );
   return out;
 }
 
@@ -523,34 +558,69 @@ async function spawn(message, name) {
     const a = await tools.multi_agent_v1__spawn_agent({ message });
     return a.agent_id;
   }
-  const a = await tools.collaboration__spawn_agent({ task_name: name, message });
-  return a.task_name;   // v2 认的是调用方给的 task_name
+  const cleaned = String(name ?? "task").toLowerCase().replace(/[^a-z0-9_]/g, "_");
+  const base = !cleaned || cleaned === "root" || cleaned === "_" ? "task" : cleaned;
+  for (let attempt = 0; attempt < _SPAWN_ATTEMPTS; attempt++) {
+    const seq = agentSeq++;
+    const taskName = attempt === 0 ? `${base}_${seq}` : `${base}_${_agentNonce}_${seq}_${attempt}`;
+    try {
+      const a = await tools[_V2_TOOLS.spawn_agent]({
+        task_name: taskName,
+        message,
+        fork_turns: "none",
+      });
+      return a.task_name;   // v2 认的是调用方给的 task_name
+    } catch (err) {
+      if (!/already exists/i.test(String(err)) || attempt + 1 === _SPAWN_ATTEMPTS) throw err;
+    }
+  }
+  throw new Error("unreachable spawn retry state");
 }
+
+const _isFinalStatus = (status) =>
+  status === "shutdown" ||
+  status === "not_found" ||
+  (status && typeof status === "object" && ("completed" in status || "errored" in status));
+
+const _replyOf = (status) =>
+  status && typeof status === "object" && "completed" in status
+    ? status.completed ?? null
+    : null;
 
 // 收齐 N 个结果——两代形状差得最远的就是这一处
 async function collect(keys, timeoutMs = 300000) {
   const replies = new Map();
+  if (keys.length === 0) return replies;
+  const minWaitMs = BACKEND === "v2" ? _V2_WAIT_LIMITS.min : 10000;
+  timeoutMs = Math.max(timeoutMs, minWaitMs);
   if (BACKEND === "v1") {
     // 一次只等一个：多目标等待会反复返回最先完成的那个
     for (const k of keys) {
       const out = await tools.multi_agent_v1__wait_agent({ targets: [k], timeout_ms: timeoutMs });
-      replies.set(k, ((out.status || {})[k] || {}).completed ?? null);
+      replies.set(k, _replyOf((out.status || {})[k]));
     }
     return replies;
   }
   // v2：wait 只是"有动静了"的信号，内容要另外去 list_agents 里捞
   const deadline = Date.now() + timeoutMs;
-  while (replies.size < keys.length && Date.now() < deadline) {
-    const listed = await tools.collaboration__list_agents({});
+  let firstWait = true;
+  for (;;) {
+    const listed = await tools[_V2_TOOLS.list_agents]({});
     for (const e of listed.agents || []) {
       const k = keys.find((x) => e.agent_name === x || e.agent_name.endsWith(`/${x}`));
       const st = e.agent_status;
-      if (k && !replies.has(k) && st && ("completed" in st || "errored" in st)) {
-        replies.set(k, st.completed ?? null);
+      if (k && !replies.has(k) && _isFinalStatus(st)) {
+        replies.set(k, _replyOf(st));
       }
     }
     if (replies.size >= keys.length) break;
-    await tools.collaboration__wait_agent({ timeout_ms: 15000 });
+    const remainingMs = deadline - Date.now();
+    if (_V2_WAIT_LIMITS.max === 0) break;
+    if (!firstWait && (remainingMs <= 0 || remainingMs < _V2_WAIT_LIMITS.min)) break;
+    await tools[_V2_TOOLS.wait_agent]({
+      timeout_ms: _clampV2WaitMs(Math.min(15000, remainingMs)),
+    });
+    firstWait = false;
   }
   for (const k of keys) if (!replies.has(k)) replies.set(k, null);
   return replies;
@@ -602,7 +672,8 @@ try {
   const keys = await mapLimit(folders, CONCURRENCY, (folder, i) =>
     spawn(prompt(folder), `scan_${i}`),
   );
-  const replies = await collect(keys);
+  // 与 prelude 版一致：v1 三个目标的等待预算最坏为 3 × 240000 = 720000 ms。
+  const replies = await collect(keys, 240000);
 
   // ④ 防御性收口，失败留原文
   const results = folders.map((folder, i) => {
@@ -641,7 +712,7 @@ codex exec --poa ./my-poa -C /path/to/target
 
 ### 12.3 两版的差异一览
 
-| | 抄了 prelude | 只用内置 |
+| | 使用 prelude | 只用内置 |
 | --- | --- | --- |
 | 后端探测 | `AGENT_BACKEND` / `requireAgents()` | 自己从 `ALL_TOOLS` 里认 |
 | 派发 + 等待 | `runBatch` 一行 | `mapLimit` + `spawn` + `collect`，两代分支自己写 |
@@ -649,9 +720,9 @@ codex exec --poa ./my-poa -C /path/to/target
 | shell 取行 | `shellLines(cmd, {validate})` | `tools.exec_command` + `split` + `filter` |
 | 解析回复 | `parseJsonReply` | 自带一个同名实现 |
 | 释放名额 | `closeAll(handles)` | `if (BACKEND === "v1")` + `close_agent` |
-| 行数 | prelude 226 行 + 本体 | 自备 63 行 + 本体 |
+| 行数 | prelude 341 行 + 本体 | 自备 133 行 + 本体 |
 
-两版的 pragma 都在第 1 行：`entry` 原样提交，抄 prelude 时把它抄在 pragma 之后即可。
+两版的 pragma 都在第 1 行；完整组装规则见《03-concepts.md》§2。
 
 ---
 
@@ -663,4 +734,4 @@ codex exec --poa ./my-poa -C /path/to/target
 
 改常量要重新打包。`codex exec --poa <目录>` 每次现打包，所以本地改完直接重跑即可；但一份已经发出去的 `.poa` 是定稿，改不了。[§3](#3-把外部输入送进程序) 那三条路里，只有"写死在源码顶部"对包成立。
 
-包的完整格式、边界与打包发布，见《10-packaging.md》文档。
+包的完整格式、边界与打包发布，见《08-packaging.md》文档。

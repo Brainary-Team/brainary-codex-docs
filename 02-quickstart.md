@@ -1,14 +1,14 @@
 # 快速开始
 
-本篇覆盖从拿到二进制到跑通第一个自建程序的完整动线。
+本篇覆盖从拿到二进制到跑通第一个 PoA 程序的完整路线。
 
 ## 前置条件
 
 | 事项 | 当前状态 |
 | --- | --- |
 | 从哪个前端提交 PoA | `codex exec --poa` 与 `codex app-server` 的 `thread/codeMode/exec` 两条，均已可用。TUI、SDK 与 `codex mcp-server` 暂不支持 |
-| 二进制从哪来 | 本项目发布的 release 制品。上游安装版的 `codex` 没有 `--poa`，也不提供那个 RPC 方法 |
-| 程序以什么形态提交 | 一个包目录（`manifest.toml` + `main.js`）。`codex exec --poa <目录>` 每次现打包现跑，没有"先 build 再跑"这一步 |
+| 二进制从哪来 | 本项目发布的 release 制品。 |
+| 程序以什么形态提交 | 一个包目录（`manifest.toml` + `main.js`）。`codex exec --poa <目录>`  |
 | 用哪代多 agent 后端 | 由模型元数据决定，另有一个 feature 可以强制到 v2。跑探针查，见 §2 |
 
 ---
@@ -33,29 +33,25 @@
 - **两个文件必须放在同一目录。**
 - **机器上装过 `codex` 时，注意不要调到那一个。** 本篇所有命令都写完整路径。
 
-> macOS 与 arm64 当前没有制品，只能从源码构建。`codex` 常规 `cargo build` 即可，但 `codex-code-mode-host` 要求一份开启 `v8_enable_sandbox` 特性的预编译 V8，crates.io 上的产物不带这个特性，需要另行准备。
+> macOS 与 arm64 当前没有制品。
 
 ---
 
 ## 1. 配置 `CODEX_HOME/config.toml`
 
-`CODEX_HOME` 默认是 `~/.codex`。整份配置如下，逐项说明在下面：
+`CODEX_HOME` 默认是 `~/.codex`。最小推荐配置：
 
 ```toml
 model = "gpt-5.6-luna"
 model_provider = "poa"
 approval_policy = "never"
 sandbox_mode = "read-only"
-suppress_unstable_features_warning = true
 
 [model_providers.poa]
 name = "poa"
 base_url = "https://your-provider/v1"
 env_key = "BRAINARY_API_KEY"
 wire_api = "responses"
-
-[features.code_mode]
-enabled = true
 ```
 
 设置环境变量：
@@ -66,23 +62,29 @@ export BRAINARY_API_KEY=sk-...
 
 | 项 | 为什么需要 |
 | --- | --- |
-| `[features.code_mode] enabled = true` | 这个 feature 默认关闭，`--poa` 不会自动打开它。未打开时 `exec` 工具不在工具面上，cell 起不来 |
-| `model` | 必须是 codex 自带模型清单里的 slug，否则解析不出模型。它同时决定用哪代 agent 后端，见 §2 |
+| `[features.code_mode] enabled = true` | 上面的 luna 配置不用写；使用 fallback metadata 时必须显式打开 |
+| `model` | 填 provider 接受的模型 ID；只有网关接受或映射内置 slug 时才能填 luna |
 | `model_provider` | 指向下面那张表的名字，两处必须一致（这里是 `poa`）。表里的 `name` 只是显示名 |
-| `base_url` | provider 的 API 根地址。codex 在它后面拼路径，所以要带到 `/v1` 那一层 |
-| `wire_api` | 使用哪种请求协议。只有两个值：`responses`（默认，`/v1/responses`）和 `anthropic`（`/v1/messages`）。其余值在解析配置时就报错，不会退回默认值 |
+| `base_url` | endpoint 名的父 URL；不硬性要求以 `/v1` 结尾 |
+| `wire_api` | `responses`（默认）或 `anthropic`；其余值在解析配置时直接报错 |
 | `env_key` | 只是环境变量的**名字**，取什么名都行，key 本身写在环境变量里，不写进配置文件 |
-| `suppress_unstable_features_warning` | 抑制 `code_mode` 每次运行时的警告 |
+| `suppress_unstable_features_warning` | 不属于最小配置。只有显式启用了会告警的不稳定 feature 时，才按需设为 `true` |
 | `sandbox_mode` | 默认就是 `read-only`。程序要写文件时改成 `workspace-write` |
-| `approval_policy` | `codex exec` 无论如何都会把它钉成 `never`，这里只是为了让 `app-server` 那条路一致 |
+| `approval_policy` | 写 `never`，让 app-server 路径与通常的 headless exec 路径一致 |
 
-用别家 provider 时，`model` 仍然沿用清单里的 slug，真正指向哪个模型由 `base_url` 决定。
+### 选择 Anthropic 请求协议
 
-### 换用 Anthropic 协议
-
-把 `wire_api` 换成 `anthropic`，就改打 `/v1/messages`：
+把 `wire_api` 设为 `anthropic`。
 
 ```toml
+model = "kimi-k3"
+model_provider = "poa"
+approval_policy = "never"
+sandbox_mode = "read-only"
+
+[features.code_mode]
+enabled = true
+
 [model_providers.poa]
 name = "poa"
 base_url = "https://api.moonshot.cn/anthropic/v1"
@@ -90,19 +92,14 @@ env_key = "BRAINARY_API_KEY"
 wire_api = "anthropic"
 ```
 
-接入 Moonshot、DeepSeek 等不提供 `/v1/responses` 的 provider 时用这一种。
-
 | Provider | `base_url` | 模型 |
 |---|---|---|
 | Anthropic | `https://api.anthropic.com/v1` | `claude-opus-5` |
 | Moonshot | `https://api.moonshot.cn/anthropic/v1` | `kimi-k3` |
-| DeepSeek | `https://api.deepseek.com/anthropic/v1` | `deepseek-v4-pro` |
 
 ---
 
 ## 2. 第一步：跑探针
-
-这永远是第一条命令。它不派 agent、不调模型，不产生模型费用。
 
 建一个目录，两个文件：
 
@@ -128,10 +125,23 @@ entry = "main.js"
 ```js
 // @exec: {"yield_time_ms": 60000, "max_output_tokens": 10000}
 const names = ALL_TOOLS.map((t) => t.name).sort();
+const v2Spawn = ALL_TOOLS.find((t) =>
+  t.name.endsWith("spawn_agent") &&
+  String(t.description).includes("task_name") &&
+  String(t.description).includes("fork_turns"));
+const v2Prefix = v2Spawn ? v2Spawn.name.slice(0, -"spawn_agent".length) : null;
+const v2Tools = v2Prefix === null ? null : Object.fromEntries(
+  ["spawn_agent", "wait_agent", "list_agents", "followup_task"]
+    .map((key) => [key, `${v2Prefix}${key}`]),
+);
+const hasV2 = v2Tools && Object.values(v2Tools).every((name) => names.includes(name));
+const agentTools = names.filter((name) =>
+  name.startsWith("multi_agent_v1__") || (v2Prefix !== null && name.startsWith(v2Prefix)));
 text(JSON.stringify({
   backend: names.includes("multi_agent_v1__spawn_agent") ? "v1"
-         : names.includes("collaboration__spawn_agent") ? "v2" : null,
+         : hasV2 ? "v2" : null,
   tool_count: names.length,
+  agent_tools: agentTools.length,
   all_tools: names,
 }, null, 2));
 ```
@@ -142,11 +152,21 @@ text(JSON.stringify({
 ~/codex-poa/codex exec --poa ~/poa-probe --skip-git-repo-check
 ```
 
-看输出里的两个字段：
+输出是 JSON。数量和工具全集取决于当前配置；一次 v1 环境的关键字段摘录如下：
 
-| 字段 | 怎么读 |
+```json
+{
+  "backend": "v1",
+  "agent_tools": 5,
+  "all_tools": ["multi_agent_v1__spawn_agent", "..."]
+}
+```
+
+| 字段 | 含义 |
 | --- | --- |
 | `backend` | `"v1"` 或 `"v2"` → 可以往下走。`null` 则表示环境没配好 |
+| `tool_count` | 当前工具总数，只用于比较配置变化，不应与示例中的某个固定数字对齐 |
+| `agent_tools` | 当前发现的 agent 工具数；v1 通常为 5，v2 取决于当前 namespace 实际暴露的工具 |
 | `all_tools` | 当前这套配置下实际能调的工具全集。写程序时用到的每个工具都该在里面 |
 
 ### `--skip-git-repo-check`
@@ -155,12 +175,13 @@ text(JSON.stringify({
 
 ### `backend` 是 `null` 怎么办
 
-后端由模型元数据决定，程序改不了，也没有任何 feature 开关能强制回到 v1。自带清单里只有 `gpt-5.6-sol` 和 `gpt-5.6-terra` 两个模型标了 v2，其余落到 v1。
+后端默认由模型元数据决定；不在内置清单里的真实模型 ID 使用 fallback metadata，默认走 v1。本地 `[features.multi_agent_v2]` 可以强制 v2，但不能强制回 v1；程序 cell 启动后也不能改变后端。
 
 | 现象 | 原因 | 处置 |
 | --- | --- | --- |
-| `backend: null`，模型是 sol / terra | v2 那组工具默认只给模型直接调，进不了 code mode | 打开下面那个 v2 开关，或换成 v1 的模型 |
-| `backend: null`，模型是 v1 的 | code mode 没打开，或模型名没解析出来 | 检查 `[features.code_mode] enabled = true` 与 `model` 拼写 |
+| `backend: null`，模型是 sol / terra | 模型已经由 `code_mode_only` 进入 code mode，但 v2 那组 agent 工具默认只给模型直接调，PoA 看不见 | 打开下面那个 v2 开关，或换成 luna 等 v1 模型 |
+| `backend: null`，模型是 luna | 推荐模型会自动进入 code mode；此时更可能是模型名没解析出来或工具注册异常 | 检查 `model` 拼写，再看探针的完整 `all_tools` |
+| `backend: null`，使用原生 provider 的真实模型 ID | 未命中内置清单时会走 fallback metadata，不会靠 `code_mode_only` 自动进入 code mode | 确认 `model` 是 provider 接受的真实 ID，并加 `[features.code_mode] enabled = true` |
 
 打开 v2：
 
@@ -171,7 +192,7 @@ non_code_mode_only = false          # 默认为 true，此时整组工具 PoA �
 max_concurrent_threads_per_session = 8   # 默认 4，而 root 线程占一个，所以默认只剩 3 个可用
 ```
 
-注意 `[features.multi_agent_v2] enabled = true` 是一个**强制到 v2** 的开关，它压过模型元数据：打开之后 v1 的模型也会走 v2。两代的名额语义不同，会影响程序结构，见《05-writing.md》§6.3。
+注意 `[features.multi_agent_v2] enabled = true` 是一个**强制到 v2** 的开关，它压过模型元数据：打开之后 v1 的模型也会走 v2。对应的程序结构见《05-writing.md》§6.3。
 
 换模型、换 provider、改配置之后都要重跑探针。
 
@@ -179,62 +200,37 @@ max_concurrent_threads_per_session = 8   # 默认 4，而 root 线程占一个�
 
 ## 3. 第二步：接第一个 agent
 
-把 `main.js` 换成下面这段，其余不动。这里用的是**只有内置 primitive** 的写法，包里能直接跑：
+先按《03-concepts.md》§2 组装 `main.js`：第 1 行写 pragma，其后放
+[《07 API 参考》§2.4](07-api-reference.md#24-prelude-全文)，最后追加下面这段。
 
 ```js
-// @exec: {"yield_time_ms": 900000, "max_output_tokens": 30000}
-
-const NAMES = new Set(ALL_TOOLS.map((t) => t.name));
-const BACKEND = NAMES.has("multi_agent_v1__spawn_agent") ? "v1"
-  : NAMES.has("collaboration__spawn_agent") ? "v2" : null;
-
-// ① 无后端时立即失败，并把当前可用的工具名列出来
-if (!BACKEND) throw new Error("no agent tools: " + [...NAMES].sort().join(", "));
-
 const message = '用一句话说明当前目录是做什么的。只回一行 JSON：{"purpose":"..."}';
-
-let reply = null;
-if (BACKEND === "v1") {
-  const { agent_id } = await tools.multi_agent_v1__spawn_agent({ message });
-  const out = await tools.multi_agent_v1__wait_agent({ targets: [agent_id], timeout_ms: 300000 });
-  reply = ((out.status || {})[agent_id] || {}).completed ?? null;
-} else {
-  // 返回的 task_name 已经是全限定路径（形如 /root/probe_1），不要再拼一次前缀
-  const { task_name } = await tools.collaboration__spawn_agent({ task_name: "probe_1", message });
-  const deadline = Date.now() + 300000;
-  let done = false;
-  while (!done && Date.now() < deadline) {
-    const listed = await tools.collaboration__list_agents({});
-    for (const e of listed.agents || []) {
-      if (e.agent_name !== task_name && !e.agent_name.endsWith(`/${task_name}`)) continue;
-      const st = e.agent_status;
-      if (st && typeof st === "object" && ("completed" in st || "errored" in st)) {
-        reply = st.completed ?? null;   // errored 时是 null，下面按失败处理
-        done = true;
-      }
-    }
-    if (done) break;
-    // v2 的 wait 只是"有动静了"的信号，内容仍要去 list_agents 里捞
-    await tools.collaboration__wait_agent({ timeout_ms: 15000 });
-  }
-}
-
-// ② 收口必须防御性解析，③ 失败时把原文留下来
-const m = typeof reply === "string" ? reply.match(/\{[\s\S]*\}/) : null;
-let value = null, error = m ? null : "no JSON object in reply";
-if (m) { try { value = JSON.parse(m[0]); } catch (err) { error = String(err); } }
-
-text(JSON.stringify({
-  backend: BACKEND,
-  value,
-  error,
-  raw: value ? undefined : String(reply ?? "").slice(0, 200),
-}, null, 2));
+const [{ handle, reply }] = await runBatch([{ message, name: "probe", meta: {} }], {
+  concurrency: 1, timeoutMs: 300000,
+});
+const { value, error } = parseJsonReply(reply);
+await closeAll([handle]);
+text(JSON.stringify({ backend: AGENT_BACKEND, succeeded: value ? 1 : 0, total: 1,
+  value, error, raw: value ? undefined : String(reply ?? "").slice(0, 200) }, null, 2));
 ```
 
 ```bash
 ~/codex-poa/codex exec --poa ~/poa-probe -C /path/to/some/repo
 ```
+
+成功时输出应包含 `succeeded: 1`、`total: 1` 和非空 `value.purpose`。
+
+```json
+{
+  "backend": "v1",
+  "succeeded": 1,
+  "total": 1,
+  "value": { "purpose": "..." },
+  "error": null
+}
+```
+
+`runBatch` 会自动适配当前可用的 v1 或 v2 多 agent 后端；底层差异见[《03 核心概念》§2](03-concepts.md#2-分清-prelude-和内置)。
 
 ---
 
@@ -247,7 +243,7 @@ text(JSON.stringify({
 [features]
 memories = true                    # 记忆工具，还需要下面的 [memories]
 token_budget = true                # get_context_remaining
-request_permissions_tool = true    # request_permissions，且需存在一个 environment
+request_permissions_tool = true    # request_permissions，且需存在一个 environment；approval_policy = "never" 时立即返回空权限
 
 # 表形式的 feature
 [features.current_time_reminder]
@@ -267,4 +263,3 @@ dedicated_tools = true
 ```bash
 ~/codex-poa/codex exec --poa ~/poa-probe --json
 ```
-
