@@ -6,8 +6,8 @@ Python SDK 通过 Codex 的线程接口运行 PoA（Program of Agent）程序。
 
 - Python 3.10 或更高版本。
 - 支持 `thread/codeMode/exec` 的 Brainary Codex 二进制；`codex` 与 `codex-code-mode-host` 必须放在同一目录。
-- 已按[快速开始](../../02-quickstart.md)配置模型、认证信息与 `CODEX_HOME/config.toml`。
-- 一个已打包的 `.poa` 文件。SDK 当前不接受包目录；打包方式见[打包与分发](../../08-packaging.md)。
+- 已按[快速开始](../../PoA-Guide/02-quickstart.md)配置模型、认证信息与 `CODEX_HOME/config.toml`。
+- 一个已打包的 `.poa` 文件。SDK 当前不接受包目录；打包方式见[打包与分发](../../PoA-Guide/08-packaging.md)。
 
 ## 安装 SDK
 
